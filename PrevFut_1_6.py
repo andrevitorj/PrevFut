@@ -395,6 +395,9 @@ def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, tempor
         print("❌ Mercado '1x2' não disponível.")
         return None
 
+    # Definir bet como o primeiro elemento de bets
+    bet = bets[0]
+
     odds = {
         "bookmakers": [
             {
