@@ -1,90 +1,141 @@
-import requests
-import pandas as pd
-from time import sleep
+"""PrevFut - Módulo de Previsão de Resultados de Futebol
+
+Este módulo fornece funcionalidades para:
+- Buscar dados de times e partidas via API-Football
+- Calcular previsões estatísticas de resultados
+- Analisar oportunidades de apostas
+- Processar estatísticas de jogos
+
+Requer uma chave de API válida da API-Football configurada como variável de ambiente.
+"""
+
 from datetime import datetime, timedelta
-import numpy as np
-from scipy.stats import poisson
 from typing import Tuple, Optional, Dict, List, Any
+from requests.exceptions import RequestException
+from scipy.stats import poisson
+from loguru import logger
+from dotenv import load_dotenv
+import pandas as pd
+import numpy as np
+import requests
 import json
 import os
-from requests.exceptions import RequestException
 
-# Obter API_KEY para a API-Football
-API_KEY = os.environ.get("API_KEY")
+# Carregar variáveis de ambiente
+load_dotenv()
+
+# Configuração de logging
+logger.add(
+    "prevfut.log",
+    rotation="500 MB",
+    level="INFO",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+)
+
+# Configuração da API
+API_KEY = os.getenv("API_KEY")
 if not API_KEY:
-    raise ValueError("A variável de ambiente API_KEY não está definida. Configure-a no Streamlit Cloud Secrets.")
+    logger.error("API_KEY não encontrada nas variáveis de ambiente")
+    raise ValueError("A variável de ambiente API_KEY não está definida. Configure-a no arquivo .env ou no Streamlit Cloud Secrets.")
 
-BASE_URL = "https://v3.football.api-sports.io"
+from config import (
+    BASE_URL,
+    REQUEST_LIMIT_PER_MINUTE,
+    REQUEST_INTERVAL,
+    CACHE_FILE,
+    ESTATISTICAS_MODELO,
+    COMPETICAO_PESOS,
+    LOG_CONFIG,
+    THRESHOLD_VALOR,
+    MIN_PROBABILIDADE,
+    MAX_ODD
+)
+
+# Configuração dos headers da API
 HEADERS = {"x-apisports-key": API_KEY}
-CACHE_FILE = "api_cache.json"
-REQUEST_LIMIT_PER_MINUTE = 100
-REQUEST_INTERVAL = 60 / REQUEST_LIMIT_PER_MINUTE
 
-ESTATISTICAS_MODELO = {
-    "shots_on_goal": "Chutes no Gol",
-    "total_shots": "Finalizações Totais",
-    "ball_possession": "Posse de Bola (%)",
-    "corners": "Escanteios",
-    "fouls": "Faltas",
-    "yellow_cards": "Cartões Amarelos",
-    "red_cards": "Cartões Vermelhos",
-    "gols": "Gols",
-    "offsides": "Impedimentos"
-}
-
-COMPETICAO_PESOS = {
-    "UEFA Champions League": 1.0,
-    "La Liga": 0.85,
-    "Premier League": 0.85,
-    "Serie A": 0.8,
-    "Bundesliga": 0.8,
-    "CONMEBOL Libertadores": 0.75,
-    "Ligue 1": 0.75,
-    "Série A": 0.7,
-    "Série B": 0.55,
-    "Série C": 0.4,
-    "Copa do Brasil": 0.6,
-    "Paranaense - 1": 0.5,
-    "Copa del Rey": 0.7,
-    "Estadual": 0.5,
-    "FA Cup": 0.7,
-    "Coupe de France": 0.5,
-    "Desconhecida": 0.5
-}
+# Configuração do logger
+logger.configure(**LOG_CONFIG)
 
 def load_cache() -> Dict[str, Any]:
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, 'r') as f:
-            return json.load(f)
+    """Carrega o cache do arquivo JSON.
+    
+    Returns:
+        Dict[str, Any]: Dicionário com dados em cache ou vazio se não existir.
+    """
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                logger.debug(f"Cache carregado de {CACHE_FILE}")
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"Erro ao carregar cache: {e}")
     return {}
 
 def save_cache(cache: Dict[str, Any]) -> None:
-    with open(CACHE_FILE, 'w') as f:
-        json.dump(cache, f)
+    """Salva o cache em arquivo JSON.
+    
+    Args:
+        cache (Dict[str, Any]): Dicionário com dados para cache.
+    """
+    try:
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+            logger.debug(f"Cache salvo em {CACHE_FILE}")
+    except Exception as e:
+        logger.error(f"Erro ao salvar cache: {e}")
 
 def make_api_request(url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Faz requisição à API com cache e tratamento de erros.
+    
+    Args:
+        url (str): URL da API.
+        params (Dict[str, Any]): Parâmetros da requisição.
+    
+    Returns:
+        Optional[Dict[str, Any]]: Dados da resposta ou None se houver erro.
+    """
     cache = load_cache()
     cache_key = f"{url}_{json.dumps(params, sort_keys=True)}"
     
+    # Verificar cache
     if cache_key in cache:
+        logger.debug(f"Dados encontrados em cache para: {url}")
         return cache[cache_key]
     
     try:
-        sleep(REQUEST_INTERVAL)
-        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        # Respeitar limite de requisições
+        time.sleep(REQUEST_INTERVAL)
+        
+        # Fazer requisição
+        logger.info(f"Fazendo requisição para: {url}")
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            params=params,
+            timeout=10
+        )
         response.raise_for_status()
         data = response.json()
         
+        # Verificar erros da API
         if data.get("errors"):
-            print(f"❌ Erro da API: {data['errors']}")
+            logger.error(f"Erro da API: {data['errors']}")
             return None
-            
+        
+        # Salvar no cache
         cache[cache_key] = data
         save_cache(cache)
+        logger.debug(f"Dados salvos em cache para: {url}")
+        
         return data
+        
     except RequestException as e:
-        print(f"❌ Falha na requisição: {e}")
-        return None
+        logger.error(f"Erro na requisição HTTP: {e}")
+    except Exception as e:
+        logger.error(f"Erro inesperado: {e}")
+    
+    return None
 
 def buscar_id_time(nome_busca: str) -> Tuple[Optional[int], Optional[str]]:
     url = f"{BASE_URL}/teams"
