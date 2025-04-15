@@ -108,6 +108,8 @@ def buscar_id_time(nome_busca: str) -> Tuple[Optional[int], Optional[str]]:
     print("\n🔍 Times encontrados:")
     for idx, (tid, nome) in enumerate(candidatos, 1):
         print(f"{idx}. {nome}")
+    print(f"Selecionando automaticamente: {candidatos[0][1]}")
+    return candidatos[0]
 
     while True:
         try:
