@@ -9,7 +9,7 @@ st.set_page_config(page_title="Previsão de Placar de Futebol", layout="wide")
 
 # Título e descrição
 st.title("⚽ Previsão de Placar de Futebol - Versão 1.6")
-st.markdown("Digite os times e selecione o mandante para prever o placar, estatísticas e identificar oportunidades de apostas com base em odds de mercado.")
+st.markdown("Digite os times e selecione o mandante para prever o placar, estatísticas e identificar oportunidades de apostas.")
 
 # Formulário de input
 with st.form(key="previsao_form"):
@@ -51,41 +51,135 @@ if submit_button:
             sys.stdout = old_stdout
             output = mystdout.getvalue()
             
-            # Exibir resultados
+            # Processar resultados
             if output:
-                st.subheader("📊 Resultado da Previsão")
+                # Criar abas
+                tab1, tab2, tab3 = st.tabs(["Previsão", "Estatísticas Detalhadas", "Histórico de Partidas"])
                 
-                # Separar seções da saída
-                sections = output.split("\n\n")
-                for section in sections:
-                    if section.startswith("📈 Previsão estatística"):
-                        st.markdown(f"**{section.splitlines()[0]}**")
-                    elif section.startswith("🔹 Estatísticas de") or section.startswith("🔸 Estatísticas de"):
-                        # Extrair nome do time
-                        time_nome = section.split(":")[0].split("de ")[1]
-                        st.markdown(f"**{time_nome}**")
-                        # Criar tabela para estatísticas
-                        stats_lines = section.splitlines()[1:]
-                        stats_data = []
-                        for line in stats_lines:
-                            if ":" in line:
-                                stat, value = line.split(":", 1)
-                                stats_data.append({"Estatística": stat.strip(), "Valor": value.strip()})
-                        if stats_data:
-                            st.table(stats_data)
-                    elif section.startswith("🎯 Previsão de placar"):
-                        st.markdown(f"**{section.splitlines()[0]}**")
-                        for line in section.splitlines()[1:]:
+                with tab1:
+                    st.subheader("📊 Previsão do Confronto")
+                    
+                    # Seção 1.1 - Placar mais provável
+                    placar_section = next(s for s in output.split("\n\n") if s.startswith("🎯 Previsão de placar"))
+                    st.markdown(f"**{placar_section.splitlines()[0]}**")
+                    st.write(placar_section.splitlines()[1])
+                    
+                    # Seção 1.2 - Odds dentro do IC 80%
+                    st.subheader("📊 Odds com Valor Esperado (IC 80%)")
+                    oportunidades_section = next(s for s in output.split("\n\n") if s.startswith("💡 Oportunidades de Apostas"))
+                    for line in oportunidades_section.splitlines()[1:]:
+                        if "Oportunidade" in line:
+                            st.success(line.split(":")[1].strip())
+                        else:
                             st.write(line)
-                    elif section.startswith("💡 Oportunidades de Apostas"):
-                        st.markdown(f"**{section.splitlines()[0]}**")
-                        for line in section.splitlines()[1:]:
-                            st.write(line)
-                    elif section.startswith("📊 Comparação de Probabilidades"):
-                        st.markdown(f"**{section.splitlines()[0]}**")
-                        for line in section.splitlines()[1:]:
-                            st.write(line)
-                    elif section.strip():
-                        st.write(section)
+                    
+                    # Seção 1.3 - Todas as estatísticas previstas
+                    st.subheader("📈 Estatísticas Previstas")
+                    estat_section = next(s for s in output.split("\n\n") if s.startswith("📈 Previsão estatística"))
+                    st.markdown(f"**{estat_section.splitlines()[0]}**")
+                    
+                    # Ordem de importância das estatísticas
+                    estat_ordem = [
+                        "Gols Feita", "Gols Sofrida",
+                        "Chutes no Gol Feita", "Chutes no Gol Sofrida",
+                        "Finalizações Totais Feita", "Finalizações Totais Sofrida",
+                        "Posse de Bola (%) Feita", "Posse de Bola (%) Sofrida",
+                        "Escanteios Feita", "Escanteios Sofrida",
+                        "Faltas Feita", "Faltas Sofrida",
+                        "Cartões Amarelos Feita", "Cartões Amarelos Sofrida",
+                        "Cartões Vermelhos Feita", "Cartões Vermelhos Sofrida",
+                        "Impedimentos Feita", "Impedimentos Sofrida"
+                    ]
+                    
+                    # Processar estatísticas para cada time
+                    stats_data = []
+                    for section in output.split("\n\n"):
+                        if section.startswith("🔹 Estatísticas de") or section.startswith("🔸 Estatísticas de"):
+                            time_nome = section.split(":")[0].split("de ")[1]
+                            for line in section.splitlines()[1:]:
+                                if ":" in line:
+                                    stat, value = line.split(":", 1)
+                                    stat = stat.strip()
+                                    value = value.strip()
+                                    # Extrair valores do IC
+                                    if "±" in value:
+                                        media = float(value.split("±")[0].strip())
+                                        desvio = float(value.split("±")[1].split("(")[0].strip())
+                                        ic_inf = media - desvio
+                                        ic_sup = media + desvio
+                                        stats_data.append({
+                                            "Time": time_nome,
+                                            "Estatística": stat,
+                                            "Média": media,
+                                            "IC Inferior": ic_inf,
+                                            "IC Superior": ic_sup
+                                        })
+                    
+                    # Exibir estatísticas ordenadas
+                    for stat in estat_ordem:
+                        for time in [nome_a, nome_b]:
+                            stat_data = next((item for item in stats_data if item["Estatística"] == stat and item["Time"] == time), None)
+                            if stat_data:
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric(
+                                        label=f"{stat} - {time}",
+                                        value=f"{stat_data['Média']:.2f}",
+                                        delta=f"IC: {stat_data['IC Inferior']:.2f}-{stat_data['IC Superior']:.2f}"
+                                    )
+                
+                with tab2:
+                    st.subheader("📋 Estatísticas Detalhadas por Time")
+                    
+                    # Seção 2.1 - Estatísticas ordenadas por importância
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown(f"### {nome_a} (Mandante)" if time_a_mandante else f"### {nome_a} (Visitante)")
+                        df_a = pd.DataFrame([item for item in stats_data if item["Time"] == nome_a])
+                        df_a = df_a[df_a["Estatística"].isin(estat_ordem)].sort_values(
+                            by="Estatística", 
+                            key=lambda x: x.map({v:i for i,v in enumerate(estat_ordem)})
+                        )
+                        st.dataframe(
+                            df_a[["Estatística", "Média", "IC Inferior", "IC Superior"]].rename(columns={
+                                "Estatística": "Estatística",
+                                "Média": "Média",
+                                "IC Inferior": "Mínimo",
+                                "IC Superior": "Máximo"
+                            }),
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        st.markdown(f"### {nome_b} (Mandante)" if not time_a_mandante else f"### {nome_b} (Visitante)")
+                        df_b = pd.DataFrame([item for item in stats_data if item["Time"] == nome_b])
+                        df_b = df_b[df_b["Estatística"].isin(estat_ordem)].sort_values(
+                            by="Estatística", 
+                            key=lambda x: x.map({v:i for i,v in enumerate(estat_ordem)})
+                        )
+                        st.dataframe(
+                            df_b[["Estatística", "Média", "IC Inferior", "IC Superior"]].rename(columns={
+                                "Estatística": "Estatística",
+                                "Média": "Média",
+                                "IC Inferior": "Mínimo",
+                                "IC Superior": "Máximo"
+                            }),
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                
+                with tab3:
+                    st.subheader("📅 Histórico de Partidas Recentes")
+                    
+                    # Seção 3 - Histórico de partidas
+                    for section in output.split("\n\n"):
+                        if "jogos já realizados retornados para" in section:
+                            st.markdown(f"**{section.splitlines()[0]}**")
+                            jogos = section.splitlines()[1:]
+                            for jogo in jogos:
+                                if jogo.strip():
+                                    st.write(jogo)
             else:
                 st.warning("Nenhuma saída gerada. Verifique os inputs e tente novamente.")
