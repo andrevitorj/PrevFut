@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from PrevFut_1_5 import processar_confronto, buscar_id_time, detectar_temporada_atual
+from PrevFut_1_6 import processar_confronto, buscar_id_time, detectar_temporada_atual
 from io import StringIO
 import sys
 
@@ -8,8 +8,8 @@ import sys
 st.set_page_config(page_title="Previsão de Placar de Futebol", layout="wide")
 
 # Título e descrição
-st.title("⚽ Previsão de Placar de Futebol")
-st.markdown("Digite os times e selecione o mandante para prever o placar e estatísticas do confronto.")
+st.title("⚽ Previsão de Placar de Futebol - Versão 1.6")
+st.markdown("Digite os times e selecione o mandante para prever o placar, estatísticas e identificar oportunidades de apostas com base em odds de mercado.")
 
 # Formulário de input
 with st.form(key="previsao_form"):
@@ -20,14 +20,14 @@ with st.form(key="previsao_form"):
         nome_input_b = st.text_input("Time B (ex.: Paris Saint Germain)", key="time_b")
     
     mando = st.radio("Mandante:", ["Time A", "Time B"], horizontal=True)
-    submit_button = st.form_submit_button("Prever Placar")
+    submit_button = st.form_submit_button("Prever Placar e Analisar Oportunidades")
 
 # Processar previsão
 if submit_button:
     if not nome_input_a or not nome_input_b:
         st.error("Por favor, preencha os nomes dos dois times.")
     else:
-        with st.spinner("Buscando dados e calculando previsão..."):
+        with st.spinner("Buscando dados, calculando previsão e analisando odds..."):
             # Capturar saída de print
             old_stdout = sys.stdout
             sys.stdout = mystdout = StringIO()
@@ -74,6 +74,14 @@ if submit_button:
                         if stats_data:
                             st.table(stats_data)
                     elif section.startswith("🎯 Previsão de placar"):
+                        st.markdown(f"**{section.splitlines()[0]}**")
+                        for line in section.splitlines()[1:]:
+                            st.write(line)
+                    elif section.startswith("💡 Oportunidades de Apostas"):
+                        st.markdown(f"**{section.splitlines()[0]}**")
+                        for line in section.splitlines()[1:]:
+                            st.write(line)
+                    elif section.startswith("📊 Comparação de Probabilidades"):
                         st.markdown(f"**{section.splitlines()[0]}**")
                         for line in section.splitlines()[1:]:
                             st.write(line)
