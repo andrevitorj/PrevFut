@@ -1,7 +1,7 @@
 import requests
 import pandas as pd
 from time import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
 from scipy.stats import poisson
 from typing import Tuple, Optional, Dict, List, Any
@@ -9,7 +9,7 @@ import json
 import os
 from requests.exceptions import RequestException
 
-# Obter API_KEY de variável de ambiente
+# Obter API_KEY para a API-Football
 API_KEY = os.environ.get("API_KEY")
 if not API_KEY:
     raise ValueError("A variável de ambiente API_KEY não está definida. Configure-a no Streamlit Cloud Secrets.")
@@ -216,7 +216,6 @@ def buscar_jogos_com_season(time_id: int, nome_oficial: str, season: int, limite
                         elif tipo in ["shots_on_goal", "total_shots", "corners", "fouls", "yellow_cards", "red_cards"]:
                             try:
                                 valor = int(valor)
-                                # Validação mais rigorosa
                                 if tipo in ["shots_on_goal"] and valor > 15:
                                     valor = 0
                                 elif tipo == "total_shots" and valor > 25:
@@ -225,14 +224,12 @@ def buscar_jogos_com_season(time_id: int, nome_oficial: str, season: int, limite
                                     valor = 0
                             except (ValueError, TypeError):
                                 valor = 0
-                        # Etapa 1: Normalizar pelo peso do adversário
                         if prefixo == ("mandante" if is_mandante else "visitante"):
                             valor = valor * peso_adversario if tipo != "ball_possession" else valor
                         else:
                             valor = valor / peso_adversario if peso_adversario > 0 and tipo != "ball_possession" else valor
                         jogo_dados[chave] = valor
 
-        # Garantir que todas as estatísticas estejam presentes
         for stat in ESTATISTICAS_MODELO:
             for p in ["mandante", "visitante"]:
                 chave = f"{stat}_{p}"
@@ -247,7 +244,6 @@ def buscar_jogos_com_season(time_id: int, nome_oficial: str, season: int, limite
 def calcular_media_ajustada(df: pd.DataFrame, time_nome: str, is_mandante: bool = None) -> Dict[str, str]:
     estatisticas_finais = {}
     
-    # Filtrar por mando se especificado
     if is_mandante is not None:
         df = df[df["is_mandante"] == is_mandante]
     
@@ -258,7 +254,6 @@ def calcular_media_ajustada(df: pd.DataFrame, time_nome: str, is_mandante: bool 
         return estatisticas_finais
 
     for stat_key in ESTATISTICAS_MODELO:
-        # Corrigir prefixo para time_nome
         is_time_mandante = df.iloc[0]["mandante"] == time_nome
         prefixo = "mandante" if is_time_mandante else "visitante"
         prefixo_oposto = "visitante" if is_time_mandante else "mandante"
@@ -289,4 +284,218 @@ def calcular_media_ajustada(df: pd.DataFrame, time_nome: str, is_mandante: bool 
                     print(f"⚠️ Erro ao calcular {col}: {e}")
                     estatisticas_finais[f"{ESTATISTICAS_MODELO[stat_key]} {sufixo}"] = "N/D"
             else:
-                estatisticas_fin
+                estatisticas_finais[f"{ESTATISTICAS_MODELO[stat_key]} {sufixo}"] = "N/D"
+
+    return estatisticas_finais
+
+def prever_placar(time_a: str, df_a: pd.DataFrame, time_b: str, df_b: pd.DataFrame, time_a_mandante: bool) -> Tuple[float, float, Tuple[int, int]]:
+    lambda_a_casa = float(calcular_media_ajustada(df_a, time_a, is_mandante=True).get("Gols Feita", "0 ± 0").split(" ± ")[0])
+    lambda_a_fora = float(calcular_media_ajustada(df_a, time_a, is_mandante=False).get("Gols Feita", "0 ± 0").split(" ± ")[0])
+    lambda_a = (lambda_a_casa + lambda_a_fora) / 2 if not time_a_mandante else lambda_a_casa
+
+    lambda_b_casa = float(calcular_media_ajustada(df_b, time_b, is_mandante=True).get("Gols Feita", "0 ± 0").split(" ± ")[0])
+    lambda_b_fora = float(calcular_media_ajustada(df_b, time_b, is_mandante=False).get("Gols Feita", "0 ± 0").split(" ± ")[0])
+    lambda_b = (lambda_b_casa + lambda_b_fora) / 2 if time_a_mandante else lambda_b_fora
+
+    max_gols = 10
+    prob_a = [poisson.pmf(i, lambda_a) for i in range(max_gols + 1)]
+    prob_b = [poisson.pmf(i, lambda_b) for i in range(max_gols + 1)]
+
+    placar_mais_provavel = (0, 0)
+    maior_prob = 0.0
+    for i in range(max_gols + 1):
+        for j in range(max_gols + 1):
+            prob = prob_a[i] * prob_b[j]
+            if prob > maior_prob:
+                maior_prob = prob
+                placar_mais_provavel = (i, j)
+
+    return lambda_a, lambda_b, placar_mais_provavel
+
+def calcular_probabilidades_1x2(lambda_a: float, lambda_b: float) -> Tuple[float, float, float]:
+    max_gols = 10
+    prob_a = [poisson.pmf(i, lambda_a) for i in range(max_gols + 1)]
+    prob_b = [poisson.pmf(i, lambda_b) for i in range(max_gols + 1)]
+
+    prob_vitoria_a = 0.0
+    prob_empate = 0.0
+    prob_vitoria_b = 0.0
+
+    for i in range(max_gols + 1):
+        for j in range(max_gols + 1):
+            prob = prob_a[i] * prob_b[j]
+            if i > j:
+                prob_vitoria_a += prob
+            elif i == j:
+                prob_empate += prob
+            else:
+                prob_vitoria_b += prob
+
+    return prob_vitoria_a, prob_empate, prob_vitoria_b
+
+def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, temporada_a: int) -> Optional[Dict[str, Any]]:
+    # Passo 1: Buscar jogos futuros entre os dois times
+    hoje = datetime.now()
+    data_inicio = hoje.strftime("%Y-%m-%d")
+    data_fim = (hoje + timedelta(days=30)).strftime("%Y-%m-%d")  # Buscar jogos nos próximos 30 dias
+
+    url_fixtures = f"{BASE_URL}/fixtures"
+    params = {
+        "team": time_id_a,
+        "season": temporada_a,
+        "from": data_inicio,
+        "to": data_fim,
+        "status": "NS"  # NS = Not Started (jogos não iniciados)
+    }
+    fixtures_data = make_api_request(url_fixtures, params)
+    
+    if not fixtures_data:
+        print("❌ Não foi possível encontrar jogos futuros para o time A.")
+        return None
+
+    fixture_id = None
+    jogos = fixtures_data.get("response", [])
+    for jogo in jogos:
+        home_team_id = jogo["teams"]["home"]["id"]
+        away_team_id = jogo["teams"]["away"]["id"]
+        if (home_team_id == time_id_a and away_team_id == time_id_b) or \
+           (home_team_id == time_id_b and away_team_id == time_id_a):
+            fixture_id = jogo["fixture"]["id"]
+            break
+
+    if not fixture_id:
+        print(f"❌ Jogo {time_a} vs {time_b} não encontrado nos próximos 30 dias.")
+        return None
+
+    # Passo 2: Buscar odds para o jogo encontrado
+    url_odds = f"{BASE_URL}/odds"
+    params = {
+        "fixture": fixture_id,
+        "bet": 1  # ID 1 geralmente é "Match Winner" (1x2)
+    }
+    odds_data = make_api_request(url_odds, params)
+
+    if not odds_data or not odds_data.get("response"):
+        print(f"❌ Odds não disponíveis para o jogo {time_a} vs {time_b}.")
+        return None
+
+    # Estrutura de resposta simulada para compatibilidade com a função identificar_oportunidades
+    response = odds_data["response"][0]
+    bookmakers = response.get("bookmakers", [])
+    if not bookmakers:
+        print("❌ Nenhum bookmaker disponível para este jogo.")
+        return None
+
+    # Usar o primeiro bookmaker (ex.: Bet365)
+    bookmaker = bookmakers[0]
+    bets = bookmaker.get("bets", [])
+    if not bets or bets[0]["id"] != 1:  # Verificar se é o mercado "Match Winner"
+        print("❌ Mercado '1x2' não disponível.")
+        return None
+
+    odds = {
+        "bookmakers": [
+            {
+                "markets": [
+                    {
+                        "key": "h2h",
+                        "outcomes": [
+                            {"name": time_a if jogo["teams"]["home"]["id"] == time_id_a else time_b, "price": float(bet["values"][0]["odd"])},  # Home
+                            {"name": "Draw", "price": float(bet["values"][1]["odd"])},  # Draw
+                            {"name": time_b if jogo["teams"]["away"]["id"] == time_id_b else time_a, "price": float(bet["values"][2]["odd"])}   # Away
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    return odds
+
+def calcular_probabilidade_implicita(odd: float) -> float:
+    if odd <= 1.0:
+        return 0.0
+    return (1 / odd) * 100
+
+def identificar_oportunidades(prob_vitoria_a: float, prob_empate: float, prob_vitoria_b: float, odds: Dict[str, Any], time_a: str, time_b: str) -> List[str]:
+    oportunidades = []
+    bookmakers = odds.get("bookmakers", [])
+    if not bookmakers:
+        return ["❌ Nenhuma odd disponível para comparação."]
+
+    markets = bookmakers[0].get("markets", [])
+    if not markets or markets[0]["key"] != "h2h":
+        return ["❌ Mercado '1x2' não disponível."]
+
+    outcomes = markets[0]["outcomes"]
+    odd_vitoria_a = odd_empate = odd_vitoria_b = None
+
+    for outcome in outcomes:
+        if outcome["name"].lower() == time_a.lower():
+            odd_vitoria_a = outcome["price"]
+        elif outcome["name"].lower() == time_b.lower():
+            odd_vitoria_b = outcome["price"]
+        elif outcome["name"].lower() == "draw":
+            odd_empate = outcome["price"]
+
+    if not all([odd_vitoria_a, odd_empate, odd_vitoria_b]):
+        return ["❌ Odds incompletas para o mercado '1x2'."]
+
+    prob_implicita_a = calcular_probabilidade_implicita(odd_vitoria_a)
+    prob_implicita_empate = calcular_probabilidade_implicita(odd_empate)
+    prob_implicita_b = calcular_probabilidade_implicita(odd_vitoria_b)
+
+    prob_vitoria_a *= 100  # Converter para porcentagem
+    prob_empate *= 100
+    prob_vitoria_b *= 100
+
+    print(f"\n📊 Comparação de Probabilidades para {time_a} vs {time_b}:")
+    print(f"Vitória {time_a}: Prevista {prob_vitoria_a:.2f}% | Implícita {prob_implicita_a:.2f}%")
+    print(f"Empate: Prevista {prob_empate:.2f}% | Implícita {prob_implicita_empate:.2f}%")
+    print(f"Vitória {time_b}: Prevista {prob_vitoria_b:.2f}% | Implícita {prob_implicita_b:.2f}%")
+
+    if prob_vitoria_a > prob_implicita_a:
+        oportunidades.append(f"✅ Oportunidade: Vitória de {time_a} (Odd: {odd_vitoria_a:.2f}) - Probabilidade Prevista: {prob_vitoria_a:.2f}% > Implícita: {prob_implicita_a:.2f}%")
+    if prob_empate > prob_implicita_empate:
+        oportunidades.append(f"✅ Oportunidade: Empate (Odd: {odd_empate:.2f}) - Probabilidade Prevista: {prob_empate:.2f}% > Implícita: {prob_implicita_empate:.2f}%")
+    if prob_vitoria_b > prob_implicita_b:
+        oportunidades.append(f"✅ Oportunidade: Vitória de {time_b} (Odd: {odd_vitoria_b:.2f}) - Probabilidade Prevista: {prob_vitoria_b:.2f}% > Implícita: {prob_implicita_b:.2f}%")
+
+    if not oportunidades:
+        oportunidades.append("ℹ️ Nenhuma oportunidade de aposta identificada.")
+
+    return oportunidades
+
+def processar_confronto(nome_a: str, time_id_a: int, temporada_a: int, nome_b: str, time_id_b: int, temporada_b: int, time_a_mandante: bool) -> None:
+    df_a = buscar_jogos_com_season(time_id_a, nome_a, temporada_a)
+    df_b = buscar_jogos_com_season(time_id_b, nome_b, temporada_b)
+
+    if df_a is None or df_b is None:
+        print("❌ Não foi possível obter dados suficientes para a previsão.")
+        return
+
+    print(f"\n🔹 Estatísticas de {nome_a}:")
+    estatisticas_a = calcular_media_ajustada(df_a, nome_a)
+    for estat, valor in estatisticas_a.items():
+        print(f"{estat}: {valor}")
+
+    print(f"\n🔸 Estatísticas de {nome_b}:")
+    estatisticas_b = calcular_media_ajustada(df_b, nome_b)
+    for estat, valor in estatisticas_b.items():
+        print(f"{estat}: {valor}")
+
+    print("\n📈 Previsão estatística:")
+    lambda_a, lambda_b, placar_mais_provavel = prever_placar(nome_a, df_a, nome_b, df_b, time_a_mandante)
+
+    print(f"\n🎯 Previsão de placar mais provável ({nome_a} vs {nome_b}):")
+    print(f"Placar: {nome_a} {placar_mais_provavel[0]} x {placar_mais_provavel[1]} {nome_b}")
+
+    prob_vitoria_a, prob_empate, prob_vitoria_b = calcular_probabilidades_1x2(lambda_a, lambda_b)
+
+    odds = buscar_odds(nome_a, nome_b, time_id_a, time_id_b, temporada_a)
+    if odds:
+        print("\n💡 Oportunidades de Apostas:")
+        oportunidades = identificar_oportunidades(prob_vitoria_a, prob_empate, prob_vitoria_b, odds, nome_a, nome_b)
+        for oportunidade in oportunidades:
+            print(oportunidade)
+    else:
+        print("\n❌ Não foi possível obter odds para este confronto.")
