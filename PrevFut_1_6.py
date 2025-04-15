@@ -290,7 +290,8 @@ def calcular_media_ajustada(df: pd.DataFrame, time_nome: str, is_mandante: bool 
 
     return estatisticas_finais
 
-def prever_placar(time_a: str, df_a: pd.DataFrame, time_b: str, df_b: pd.DataFrame, time_a_mandante: bool) -> Tuple[float, float, Tuple[int, int]]:
+def prever_placar(time_a: str, df_a: pd.DataFrame, time_b: str, df_b: pd.DataFrame, time_a_mandante: bool) -> Dict[str, Any]:
+    # Calcular médias ajustadas para gols
     lambda_a_casa = float(calcular_media_ajustada(df_a, time_a, is_mandante=True).get("Gols Feita", "0 ± 0").split(" ± ")[0])
     lambda_a_fora = float(calcular_media_ajustada(df_a, time_a, is_mandante=False).get("Gols Feita", "0 ± 0").split(" ± ")[0])
     lambda_a = (lambda_a_casa + lambda_a_fora) / 2 if not time_a_mandante else lambda_a_casa
@@ -299,6 +300,7 @@ def prever_placar(time_a: str, df_a: pd.DataFrame, time_b: str, df_b: pd.DataFra
     lambda_b_fora = float(calcular_media_ajustada(df_b, time_b, is_mandante=False).get("Gols Feita", "0 ± 0").split(" ± ")[0])
     lambda_b = (lambda_b_casa + lambda_b_fora) / 2 if time_a_mandante else lambda_b_fora
 
+    # Prever placar mais provável
     max_gols = 10
     prob_a = [poisson.pmf(i, lambda_a) for i in range(max_gols + 1)]
     prob_b = [poisson.pmf(i, lambda_b) for i in range(max_gols + 1)]
@@ -312,7 +314,22 @@ def prever_placar(time_a: str, df_a: pd.DataFrame, time_b: str, df_b: pd.DataFra
                 maior_prob = prob
                 placar_mais_provavel = (i, j)
 
-    return lambda_a, lambda_b, placar_mais_provavel
+    # Calcular médias ajustadas para outras estatísticas (totais, sem distinguir mandante/visitante)
+    medias_estatisticas = {}
+    for stat_key in ESTATISTICAS_MODELO:
+        if stat_key == "gols":
+            continue  # Já calculado acima
+        media_a = float(calcular_media_ajustada(df_a, time_a).get(f"{ESTATISTICAS_MODELO[stat_key]} Feita", "0 ± 0").split(" ± ")[0])
+        media_b = float(calcular_media_ajustada(df_b, time_b).get(f"{ESTATISTICAS_MODELO[stat_key]} Feita", "0 ± 0").split(" ± ")[0])
+        media_total = media_a + media_b  # Total combinado para o jogo
+        medias_estatisticas[stat_key] = media_total
+
+    return {
+        "lambda_a": lambda_a,
+        "lambda_b": lambda_b,
+        "placar_mais_provavel": placar_mais_provavel,
+        "medias_estatisticas": medias_estatisticas
+    }
 
 def calcular_probabilidades_1x2(lambda_a: float, lambda_b: float) -> Tuple[float, float, float]:
     max_gols = 10
@@ -334,6 +351,39 @@ def calcular_probabilidades_1x2(lambda_a: float, lambda_b: float) -> Tuple[float
                 prob_vitoria_b += prob
 
     return prob_vitoria_a, prob_empate, prob_vitoria_b
+    
+    def calcular_probabilidade_over_under(lambda_a: float, lambda_b: float, threshold: float = 2.5) -> Tuple[float, float]:
+    max_gols = 10
+    prob_a = [poisson.pmf(i, lambda_a) for i in range(max_gols + 1)]
+    prob_b = [poisson.pmf(i, lambda_b) for i in range(max_gols + 1)]
+
+    prob_over = 0.0
+    for i in range(max_gols + 1):
+        for j in range(max_gols + 1):
+            total_gols = i + j
+            prob = prob_a[i] * prob_b[j]
+            if total_gols > threshold:
+                prob_over += prob
+    prob_under = 1.0 - prob_over
+    return prob_over, prob_under
+
+def calcular_probabilidade_btts(lambda_a: float, lambda_b: float) -> Tuple[float, float]:
+    max_gols = 10
+    prob_a = [poisson.pmf(i, lambda_a) for i in range(max_gols + 1)]
+    prob_b = [poisson.pmf(i, lambda_b) for i in range(max_gols + 1)]
+
+    prob_btts_yes = 0.0
+    for i in range(1, max_gols + 1):  # Pelo menos 1 gol do Time A
+        for j in range(1, max_gols + 1):  # Pelo menos 1 gol do Time B
+            prob = prob_a[i] * prob_b[j]
+            prob_btts_yes += prob
+    prob_btts_no = 1.0 - prob_btts_yes
+    return prob_btts_yes, prob_btts_no
+
+def calcular_probabilidade_over_under_estatistica(media: float, threshold: float) -> Tuple[float, float]:
+    prob_over = 1.0 - poisson.cdf(threshold - 0.5, media)  # Ajuste para continuidade
+    prob_under = 1.0 - prob_over
+    return prob_over, prob_under
 
 def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, temporada_a: int) -> Optional[Dict[str, Any]]:
     # Passo 1: Buscar jogos futuros entre os dois times
@@ -369,11 +419,10 @@ def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, tempor
         print(f"❌ Jogo {time_a} vs {time_b} não encontrado nos próximos 30 dias.")
         return None
 
-    # Passo 2: Buscar odds para o jogo encontrado
+    # Passo 2: Buscar odds para múltiplos mercados
     url_odds = f"{BASE_URL}/odds"
     params = {
-        "fixture": fixture_id,
-        "bet": 1  # ID 1 geralmente é "Match Winner" (1x2)
+        "fixture": fixture_id
     }
     odds_data = make_api_request(url_odds, params)
 
@@ -381,19 +430,77 @@ def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, tempor
         print(f"❌ Odds não disponíveis para o jogo {time_a} vs {time_b}.")
         return None
 
-    # Estrutura de resposta simulada para compatibilidade com a função identificar_oportunidades
     response = odds_data["response"][0]
     bookmakers = response.get("bookmakers", [])
     if not bookmakers:
         print("❌ Nenhum bookmaker disponível para este jogo.")
         return None
 
-    # Usar o primeiro bookmaker (ex.: Bet365)
-    bookmaker = bookmakers[0]
+    bookmaker = bookmakers[0]  # Usar o primeiro bookmaker
     bets = bookmaker.get("bets", [])
-    if not bets or bets[0]["id"] != 1:  # Verificar se é o mercado "Match Winner"
-        print("❌ Mercado '1x2' não disponível.")
+
+    odds_dict = {}
+    
+    # Mercado 1x2 (Match Winner)
+    bet_1x2 = next((bet for bet in bets if bet["id"] == 1), None)
+    if bet_1x2:
+        odds_dict["h2h"] = {
+            "outcomes": [
+                {"name": time_a if jogo["teams"]["home"]["id"] == time_id_a else time_b, "price": float(bet_1x2["values"][0]["odd"])},  # Home
+                {"name": "Draw", "price": float(bet_1x2["values"][1]["odd"])},  # Draw
+                {"name": time_b if jogo["teams"]["away"]["id"] == time_id_b else time_a, "price": float(bet_1x2["values"][2]["odd"])}   # Away
+            ]
+        }
+
+    # Mercado Over/Under 2.5 Gols
+    bet_over_under = next((bet for bet in bets if bet["id"] == 3 and bet["values"][0]["value"] == "Over 2.5"), None)
+    if bet_over_under:
+        odds_dict["over_under_2.5"] = {
+            "outcomes": [
+                {"name": "Over 2.5", "price": float(bet_over_under["values"][0]["odd"])},
+                {"name": "Under 2.5", "price": float(bet_over_under["values"][1]["odd"])}
+            ]
+        }
+
+    # Mercado Ambas as Equipes Marcam (BTTS)
+    bet_btts = next((bet for bet in bets if bet["id"] == 13), None)
+    if bet_btts:
+        odds_dict["btts"] = {
+            "outcomes": [
+                {"name": "Yes", "price": float(bet_btts["values"][0]["odd"])},
+                {"name": "No", "price": float(bet_btts["values"][1]["odd"])}
+            ]
+        }
+
+    # Mercado Over/Under Escanteios (ex.: 9.5, pode variar)
+    bet_corners = next((bet for bet in bets if bet["id"] == 34 and "Over" in bet["values"][0]["value"]), None)
+    if bet_corners:
+        threshold = float(bet_corners["values"][0]["value"].split()[-1])  # Ex.: "Over 9.5" -> 9.5
+        odds_dict["corners"] = {
+            "threshold": threshold,
+            "outcomes": [
+                {"name": f"Over {threshold}", "price": float(bet_corners["values"][0]["odd"])},
+                {"name": f"Under {threshold}", "price": float(bet_corners["values"][1]["odd"])}
+            ]
+        }
+
+    # Mercado Over/Under Cartões (ex.: 4.5, pode variar)
+    bet_cards = next((bet for bet in bets if bet["id"] == 39 and "Over" in bet["values"][0]["value"]), None)
+    if bet_cards:
+        threshold = float(bet_cards["values"][0]["value"].split()[-1])  # Ex.: "Over 4.5" -> 4.5
+        odds_dict["cards"] = {
+            "threshold": threshold,
+            "outcomes": [
+                {"name": f"Over {threshold}", "price": float(bet_cards["values"][0]["odd"])},
+                {"name": f"Under {threshold}", "price": float(bet_cards["values"][1]["odd"])}
+            ]
+        }
+
+    if not odds_dict:
+        print("❌ Nenhum mercado de aposta disponível.")
         return None
+
+    return {"bookmakers": [{"markets": [{"key": key, **value} for key, value in odds_dict.items()]}]}
 
     # Definir bet como o primeiro elemento de bets
     bet = bets[0]
@@ -421,49 +528,142 @@ def calcular_probabilidade_implicita(odd: float) -> float:
         return 0.0
     return (1 / odd) * 100
 
-def identificar_oportunidades(prob_vitoria_a: float, prob_empate: float, prob_vitoria_b: float, odds: Dict[str, Any], time_a: str, time_b: str) -> List[str]:
+def identificar_oportunidades(prob_vitoria_a: float, prob_empate: float, prob_vitoria_b: float, 
+                             prob_over: float, prob_under: float, prob_btts_yes: float, prob_btts_no: float,
+                             prob_corners_over: float, prob_corners_under: float, prob_cards_over: float, prob_cards_under: float,
+                             odds: Dict[str, Any], time_a: str, time_b: str) -> List[str]:
     oportunidades = []
     bookmakers = odds.get("bookmakers", [])
     if not bookmakers:
         return ["❌ Nenhuma odd disponível para comparação."]
 
     markets = bookmakers[0].get("markets", [])
-    if not markets or markets[0]["key"] != "h2h":
-        return ["❌ Mercado '1x2' não disponível."]
+    if not markets:
+        return ["❌ Nenhum mercado disponível."]
 
-    outcomes = markets[0]["outcomes"]
-    odd_vitoria_a = odd_empate = odd_vitoria_b = None
+    # Mercado 1x2 (h2h)
+    h2h_market = next((market for market in markets if market["key"] == "h2h"), None)
+    if h2h_market:
+        outcomes = h2h_market["outcomes"]
+        odd_vitoria_a = odd_empate = odd_vitoria_b = None
+        for outcome in outcomes:
+            if outcome["name"].lower() == time_a.lower():
+                odd_vitoria_a = outcome["price"]
+            elif outcome["name"].lower() == time_b.lower():
+                odd_vitoria_b = outcome["price"]
+            elif outcome["name"].lower() == "draw":
+                odd_empate = outcome["price"]
 
-    for outcome in outcomes:
-        if outcome["name"].lower() == time_a.lower():
-            odd_vitoria_a = outcome["price"]
-        elif outcome["name"].lower() == time_b.lower():
-            odd_vitoria_b = outcome["price"]
-        elif outcome["name"].lower() == "draw":
-            odd_empate = outcome["price"]
+        if all([odd_vitoria_a, odd_empate, odd_vitoria_b]):
+            prob_implicita_a = calcular_probabilidade_implicita(odd_vitoria_a)
+            prob_implicita_empate = calcular_probabilidade_implicita(odd_empate)
+            prob_implicita_b = calcular_probabilidade_implicita(odd_vitoria_b)
 
-    if not all([odd_vitoria_a, odd_empate, odd_vitoria_b]):
-        return ["❌ Odds incompletas para o mercado '1x2'."]
+            prob_vitoria_a *= 100  # Converter para porcentagem
+            prob_empate *= 100
+            prob_vitoria_b *= 100
 
-    prob_implicita_a = calcular_probabilidade_implicita(odd_vitoria_a)
-    prob_implicita_empate = calcular_probabilidade_implicita(odd_empate)
-    prob_implicita_b = calcular_probabilidade_implicita(odd_vitoria_b)
+            print(f"\n📊 Comparação de Probabilidades para {time_a} vs {time_b} (1x2):")
+            print(f"Vitória {time_a}: Prevista {prob_vitoria_a:.2f}% | Implícita {prob_implicita_a:.2f}%")
+            print(f"Empate: Prevista {prob_empate:.2f}% | Implícita {prob_implicita_empate:.2f}%")
+            print(f"Vitória {time_b}: Prevista {prob_vitoria_b:.2f}% | Implícita {prob_implicita_b:.2f}%")
 
-    prob_vitoria_a *= 100  # Converter para porcentagem
-    prob_empate *= 100
-    prob_vitoria_b *= 100
+            if prob_vitoria_a > prob_implicita_a:
+                oportunidades.append(f"✅ Oportunidade (1x2): Vitória de {time_a} (Odd: {odd_vitoria_a:.2f}) - Probabilidade Prevista: {prob_vitoria_a:.2f}% > Implícita: {prob_implicita_a:.2f}%")
+            if prob_empate > prob_implicita_empate:
+                oportunidades.append(f"✅ Oportunidade (1x2): Empate (Odd: {odd_empate:.2f}) - Probabilidade Prevista: {prob_empate:.2f}% > Implícita: {prob_implicita_empate:.2f}%")
+            if prob_vitoria_b > prob_implicita_b:
+                oportunidades.append(f"✅ Oportunidade (1x2): Vitória de {time_b} (Odd: {odd_vitoria_b:.2f}) - Probabilidade Prevista: {prob_vitoria_b:.2f}% > Implícita: {prob_implicita_b:.2f}%")
 
-    print(f"\n📊 Comparação de Probabilidades para {time_a} vs {time_b}:")
-    print(f"Vitória {time_a}: Prevista {prob_vitoria_a:.2f}% | Implícita {prob_implicita_a:.2f}%")
-    print(f"Empate: Prevista {prob_empate:.2f}% | Implícita {prob_implicita_empate:.2f}%")
-    print(f"Vitória {time_b}: Prevista {prob_vitoria_b:.2f}% | Implícita {prob_implicita_b:.2f}%")
+    # Mercado Over/Under 2.5 Gols
+    ou_market = next((market for market in markets if market["key"] == "over_under_2.5"), None)
+    if ou_market:
+        outcomes = ou_market["outcomes"]
+        odd_over = next(outcome["price"] for outcome in outcomes if outcome["name"] == "Over 2.5")
+        odd_under = next(outcome["price"] for outcome in outcomes if outcome["name"] == "Under 2.5")
 
-    if prob_vitoria_a > prob_implicita_a:
-        oportunidades.append(f"✅ Oportunidade: Vitória de {time_a} (Odd: {odd_vitoria_a:.2f}) - Probabilidade Prevista: {prob_vitoria_a:.2f}% > Implícita: {prob_implicita_a:.2f}%")
-    if prob_empate > prob_implicita_empate:
-        oportunidades.append(f"✅ Oportunidade: Empate (Odd: {odd_empate:.2f}) - Probabilidade Prevista: {prob_empate:.2f}% > Implícita: {prob_implicita_empate:.2f}%")
-    if prob_vitoria_b > prob_implicita_b:
-        oportunidades.append(f"✅ Oportunidade: Vitória de {time_b} (Odd: {odd_vitoria_b:.2f}) - Probabilidade Prevista: {prob_vitoria_b:.2f}% > Implícita: {prob_implicita_b:.2f}%")
+        prob_implicita_over = calcular_probabilidade_implicita(odd_over)
+        prob_implicita_under = calcular_probabilidade_implicita(odd_under)
+
+        prob_over *= 100
+        prob_under *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Over/Under 2.5 Gols):")
+        print(f"Over 2.5: Prevista {prob_over:.2f}% | Implícita {prob_implicita_over:.2f}%")
+        print(f"Under 2.5: Prevista {prob_under:.2f}% | Implícita {prob_implicita_under:.2f}%")
+
+        if prob_over > prob_implicita_over:
+            oportunidades.append(f"✅ Oportunidade (Over/Under 2.5): Over 2.5 Gols (Odd: {odd_over:.2f}) - Probabilidade Prevista: {prob_over:.2f}% > Implícita: {prob_implicita_over:.2f}%")
+        if prob_under > prob_implicita_under:
+            oportunidades.append(f"✅ Oportunidade (Over/Under 2.5): Under 2.5 Gols (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
+
+    # Mercado Ambas as Equipes Marcam (BTTS)
+    btts_market = next((market for market in markets if market["key"] == "btts"), None)
+    if btts_market:
+        outcomes = btts_market["outcomes"]
+        odd_yes = next(outcome["price"] for outcome in outcomes if outcome["name"] == "Yes")
+        odd_no = next(outcome["price"] for outcome in outcomes if outcome["name"] == "No")
+
+        prob_implicita_yes = calcular_probabilidade_implicita(odd_yes)
+        prob_implicita_no = calcular_probabilidade_implicita(odd_no)
+
+        prob_btts_yes *= 100
+        prob_btts_no *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Ambas as Equipes Marcam):")
+        print(f"Sim: Prevista {prob_btts_yes:.2f}% | Implícita {prob_implicita_yes:.2f}%")
+        print(f"Não: Prevista {prob_btts_no:.2f}% | Implícita {prob_implicita_no:.2f}%")
+
+        if prob_btts_yes > prob_implicita_yes:
+            oportunidades.append(f"✅ Oportunidade (BTTS): Sim (Odd: {odd_yes:.2f}) - Probabilidade Prevista: {prob_btts_yes:.2f}% > Implícita: {prob_implicita_yes:.2f}%")
+        if prob_btts_no > prob_implicita_no:
+            oportunidades.append(f"✅ Oportunidade (BTTS): Não (Odd: {odd_no:.2f}) - Probabilidade Prevista: {prob_btts_no:.2f}% > Implícita: {prob_implicita_no:.2f}%")
+
+    # Mercado Over/Under Escanteios
+    corners_market = next((market for market in markets if market["key"] == "corners"), None)
+    if corners_market:
+        threshold = corners_market["threshold"]
+        outcomes = corners_market["outcomes"]
+        odd_over = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Over {threshold}")
+        odd_under = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Under {threshold}")
+
+        prob_implicita_over = calcular_probabilidade_implicita(odd_over)
+        prob_implicita_under = calcular_probabilidade_implicita(odd_under)
+
+        prob_corners_over *= 100
+        prob_corners_under *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Over/Under {threshold} Escanteios):")
+        print(f"Over {threshold}: Prevista {prob_corners_over:.2f}% | Implícita {prob_implicita_over:.2f}%")
+        print(f"Under {threshold}: Prevista {prob_corners_under:.2f}% | Implícita {prob_implicita_under:.2f}%")
+
+        if prob_corners_over > prob_implicita_over:
+            oportunidades.append(f"✅ Oportunidade (Escanteios): Over {threshold} (Odd: {odd_over:.2f}) - Probabilidade Prevista: {prob_corners_over:.2f}% > Implícita: {prob_implicita_over:.2f}%")
+        if prob_corners_under > prob_implicita_under:
+            oportunidades.append(f"✅ Oportunidade (Escanteios): Under {threshold} (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_corners_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
+
+    # Mercado Over/Under Cartões
+    cards_market = next((market for market in markets if market["key"] == "cards"), None)
+    if cards_market:
+        threshold = cards_market["threshold"]
+        outcomes = cards_market["outcomes"]
+        odd_over = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Over {threshold}")
+        odd_under = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Under {threshold}")
+
+        prob_implicita_over = calcular_probabilidade_implicita(odd_over)
+        prob_implicita_under = calcular_probabilidade_implicita(odd_under)
+
+        prob_cards_over *= 100
+        prob_cards_under *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Over/Under {threshold} Cartões):")
+        print(f"Over {threshold}: Prevista {prob_cards_over:.2f}% | Implícita {prob_implicita_over:.2f}%")
+        print(f"Under {threshold}: Prevista {prob_cards_under:.2f}% | Implícita {prob_implicita_under:.2f}%")
+
+        if prob_cards_over > prob_implicita_over:
+            oportunidades.append(f"✅ Oportunidade (Cartões): Over {threshold} (Odd: {odd_over:.2f}) - Probabilidade Prevista: {prob_cards_over:.2f}% > Implícita: {prob_implicita_over:.2f}%")
+        if prob_cards_under > prob_implicita_under:
+            oportunidades.append(f"✅ Oportunidade (Cartões): Under {threshold} (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_cards_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
 
     if not oportunidades:
         oportunidades.append("ℹ️ Nenhuma oportunidade de aposta identificada.")
@@ -489,17 +689,51 @@ def processar_confronto(nome_a: str, time_id_a: int, temporada_a: int, nome_b: s
         print(f"{estat}: {valor}")
 
     print("\n📈 Previsão estatística:")
-    lambda_a, lambda_b, placar_mais_provavel = prever_placar(nome_a, df_a, nome_b, df_b, time_a_mandante)
+    previsao = prever_placar(nome_a, df_a, nome_b, df_b, time_a_mandante)
+    lambda_a = previsao["lambda_a"]
+    lambda_b = previsao["lambda_b"]
+    placar_mais_provavel = previsao["placar_mais_provavel"]
+    medias_estatisticas = previsao["medias_estatisticas"]
 
     print(f"\n🎯 Previsão de placar mais provável ({nome_a} vs {nome_b}):")
     print(f"Placar: {nome_a} {placar_mais_provavel[0]} x {placar_mais_provavel[1]} {nome_b}")
 
+    # Calcular probabilidades para os mercados
     prob_vitoria_a, prob_empate, prob_vitoria_b = calcular_probabilidades_1x2(lambda_a, lambda_b)
+    prob_over, prob_under = calcular_probabilidade_over_under(lambda_a, lambda_b, 2.5)
+    prob_btts_yes, prob_btts_no = calcular_probabilidade_btts(lambda_a, lambda_b)
+    
+    # Calcular probabilidades para escanteios (usando threshold dinâmico depois)
+    media_corners = medias_estatisticas.get("corners", 0)
+    prob_corners_over, prob_corners_under = 0.0, 0.0  # Será ajustado dinamicamente com base no threshold
+    
+    # Calcular probabilidades para cartões (amarelos + vermelhos)
+    media_yellow_cards = medias_estatisticas.get("yellow_cards", 0)
+    media_red_cards = medias_estatisticas.get("red_cards", 0)
+    media_cards = media_yellow_cards + media_red_cards * 2  # Considerando vermelho como 2 cartões
+    prob_cards_over, prob_cards_under = 0.0, 0.0  # Será ajustado dinamicamente
 
     odds = buscar_odds(nome_a, nome_b, time_id_a, time_id_b, temporada_a)
     if odds:
+        # Ajustar probabilidades de escanteios e cartões com base nos thresholds retornados
+        markets = odds["bookmakers"][0]["markets"]
+        corners_market = next((market for market in markets if market["key"] == "corners"), None)
+        if corners_market:
+            threshold_corners = corners_market["threshold"]
+            prob_corners_over, prob_corners_under = calcular_probabilidade_over_under_estatistica(media_corners, threshold_corners)
+        
+        cards_market = next((market for market in markets if market["key"] == "cards"), None)
+        if cards_market:
+            threshold_cards = cards_market["threshold"]
+            prob_cards_over, prob_cards_under = calcular_probabilidade_over_under_estatistica(media_cards, threshold_cards)
+
         print("\n💡 Oportunidades de Apostas:")
-        oportunidades = identificar_oportunidades(prob_vitoria_a, prob_empate, prob_vitoria_b, odds, nome_a, nome_b)
+        oportunidades = identificar_oportunidades(
+            prob_vitoria_a, prob_empate, prob_vitoria_b,
+            prob_over, prob_under, prob_btts_yes, prob_btts_no,
+            prob_corners_over, prob_corners_under, prob_cards_over, prob_cards_under,
+            odds, nome_a, nome_b
+        )
         for oportunidade in oportunidades:
             print(oportunidade)
     else:
