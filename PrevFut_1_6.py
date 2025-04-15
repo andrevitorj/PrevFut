@@ -354,8 +354,9 @@ def calcular_probabilidades_1x2(lambda_a: float, lambda_b: float) -> Tuple[float
                 prob_vitoria_b += prob
 
     return prob_vitoria_a, prob_empate, prob_vitoria_b
-    
-    def calcular_probabilidade_over_under(lambda_a: float, lambda_b: float, threshold: float = 2.5) -> Tuple[float, float]:
+
+# Função movada para fora da função acima
+def calcular_probabilidade_over_under(lambda_a: float, lambda_b: float, threshold: float = 2.5) -> Tuple[float, float]:
     max_gols = 10
     prob_a = [poisson.pmf(i, lambda_a) for i in range(max_gols + 1)]
     prob_b = [poisson.pmf(i, lambda_b) for i in range(max_gols + 1)]
