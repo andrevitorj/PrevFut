@@ -540,7 +540,7 @@ def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, tempor
         print("❌ Nenhum mercado de aposta disponível.")
         return None
 
-return {"bookmakers": [{"markets": [{"key": key, **value} for key, value in odds_dict.items()]}]}
+    return {"bookmakers": [{"markets": [{"key": key, **value} for key, value in odds_dict.items()]}]}
 
     # Definir bet como o primeiro elemento de bets
     bet = bets[0]
