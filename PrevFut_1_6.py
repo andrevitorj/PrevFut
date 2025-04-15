@@ -28,7 +28,8 @@ ESTATISTICAS_MODELO = {
     "fouls": "Faltas",
     "yellow_cards": "Cartões Amarelos",
     "red_cards": "Cartões Vermelhos",
-    "gols": "Gols"
+    "gols": "Gols",
+    "offsides": "Impedimentos"
 }
 
 COMPETICAO_PESOS = {
@@ -215,14 +216,16 @@ def buscar_jogos_com_season(time_id: int, nome_oficial: str, season: int, limite
                             valor = 0
                         elif tipo == "ball_possession" and isinstance(valor, str):
                             valor = float(valor.strip('%')) if valor.strip('%') else 0.0
-                        elif tipo in ["shots_on_goal", "total_shots", "corners", "fouls", "yellow_cards", "red_cards"]:
+                        elif tipo in ["shots_on_goal", "total_shots", "corners", "fouls", "yellow_cards", "red_cards", "offsides"]:
                             try:
                                 valor = int(valor)
-                                if tipo in ["shots_on_goal"] and valor > 15:
+                                if tipo == "shots_on_goal" and valor > 15:
                                     valor = 0
                                 elif tipo == "total_shots" and valor > 25:
                                     valor = 0
                                 elif tipo == "corners" and valor > 15:
+                                    valor = 0
+                                elif tipo == "offsides" and valor > 10:  # Limite razoável para impedimentos
                                     valor = 0
                             except (ValueError, TypeError):
                                 valor = 0
@@ -440,7 +443,7 @@ def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, tempor
     bets = bookmaker.get("bets", [])
 
     odds_dict = {}
-    
+
     # Mercado 1x2 (Match Winner)
     bet_1x2 = next((bet for bet in bets if bet["id"] == 1), None)
     if bet_1x2:
@@ -496,11 +499,47 @@ def buscar_odds(time_a: str, time_b: str, time_id_a: int, time_id_b: int, tempor
             ]
         }
 
+    # Mercado Over/Under Finalizações Totais (Total Shots)
+    bet_total_shots = next((bet for bet in bets if bet["id"] == 42 and "Over" in bet["values"][0]["value"]), None)
+    if bet_total_shots:
+        threshold = float(bet_total_shots["values"][0]["value"].split()[-1])  # Ex.: "Over 20" -> 20
+        odds_dict["total_shots"] = {
+            "threshold": threshold,
+            "outcomes": [
+                {"name": f"Over {threshold}", "price": float(bet_total_shots["values"][0]["odd"])},
+                {"name": f"Under {threshold}", "price": float(bet_total_shots["values"][1]["odd"])}
+            ]
+        }
+
+    # Mercado Over/Under Chutes ao Gol (Shots on Goal)
+    bet_shots_on_goal = next((bet for bet in bets if bet["id"] == 43 and "Over" in bet["values"][0]["value"]), None)
+    if bet_shots_on_goal:
+        threshold = float(bet_shots_on_goal["values"][0]["value"].split()[-1])  # Ex.: "Over 8" -> 8
+        odds_dict["shots_on_goal"] = {
+            "threshold": threshold,
+            "outcomes": [
+                {"name": f"Over {threshold}", "price": float(bet_shots_on_goal["values"][0]["odd"])},
+                {"name": f"Under {threshold}", "price": float(bet_shots_on_goal["values"][1]["odd"])}
+            ]
+        }
+
+    # Mercado Over/Under Faltas (Fouls)
+    bet_fouls = next((bet for bet in bets if bet["id"] == 45 and "Over" in bet["values"][0]["value"]), None)
+    if bet_fouls:
+        threshold = float(bet_fouls["values"][0]["value"].split()[-1])  # Ex.: "Over 25" -> 25
+        odds_dict["fouls"] = {
+            "threshold": threshold,
+            "outcomes": [
+                {"name": f"Over {threshold}", "price": float(bet_fouls["values"][0]["odd"])},
+                {"name": f"Under {threshold}", "price": float(bet_fouls["values"][1]["odd"])}
+            ]
+        }
+
     if not odds_dict:
         print("❌ Nenhum mercado de aposta disponível.")
         return None
 
-    return {"bookmakers": [{"markets": [{"key": key, **value} for key, value in odds_dict.items()]}]}
+return {"bookmakers": [{"markets": [{"key": key, **value} for key, value in odds_dict.items()]}]}
 
     # Definir bet como o primeiro elemento de bets
     bet = bets[0]
@@ -531,6 +570,9 @@ def calcular_probabilidade_implicita(odd: float) -> float:
 def identificar_oportunidades(prob_vitoria_a: float, prob_empate: float, prob_vitoria_b: float, 
                              prob_over: float, prob_under: float, prob_btts_yes: float, prob_btts_no: float,
                              prob_corners_over: float, prob_corners_under: float, prob_cards_over: float, prob_cards_under: float,
+                             prob_total_shots_over: float, prob_total_shots_under: float,
+                             prob_shots_on_goal_over: float, prob_shots_on_goal_under: float,
+                             prob_fouls_over: float, prob_fouls_under: float,
                              odds: Dict[str, Any], time_a: str, time_b: str) -> List[str]:
     oportunidades = []
     bookmakers = odds.get("bookmakers", [])
@@ -665,8 +707,78 @@ def identificar_oportunidades(prob_vitoria_a: float, prob_empate: float, prob_vi
         if prob_cards_under > prob_implicita_under:
             oportunidades.append(f"✅ Oportunidade (Cartões): Under {threshold} (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_cards_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
 
-    if not oportunidades:
-        oportunidades.append("ℹ️ Nenhuma oportunidade de aposta identificada.")
+        # Mercado Over/Under Finalizações Totais
+    total_shots_market = next((market for market in markets if market["key"] == "total_shots"), None)
+    if total_shots_market:
+        threshold = total_shots_market["threshold"]
+        outcomes = total_shots_market["outcomes"]
+        odd_over = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Over {threshold}")
+        odd_under = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Under {threshold}")
+
+        prob_implicita_over = calcular_probabilidade_implicita(odd_over)
+        prob_implicita_under = calcular_probabilidade_implicita(odd_under)
+
+        prob_total_shots_over *= 100
+        prob_total_shots_under *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Over/Under {threshold} Finalizações Totais):")
+        print(f"Over {threshold}: Prevista {prob_total_shots_over:.2f}% | Implícita {prob_implicita_over:.2f}%")
+        print(f"Under {threshold}: Prevista {prob_total_shots_under:.2f}% | Implícita {prob_implicita_under:.2f}%")
+
+        if prob_total_shots_over > prob_implicita_over:
+            oportunidades.append(f"✅ Oportunidade (Finalizações Totais): Over {threshold} (Odd: {odd_over:.2f}) - Probabilidade Prevista: {prob_total_shots_over:.2f}% > Implícita: {prob_implicita_over:.2f}%")
+        if prob_total_shots_under > prob_implicita_under:
+            oportunidades.append(f"✅ Oportunidade (Finalizações Totais): Under {threshold} (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_total_shots_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
+
+    # Mercado Over/Under Chutes ao Gol
+    shots_on_goal_market = next((market for market in markets if market["key"] == "shots_on_goal"), None)
+    if shots_on_goal_market:
+        threshold = shots_on_goal_market["threshold"]
+        outcomes = shots_on_goal_market["outcomes"]
+        odd_over = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Over {threshold}")
+        odd_under = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Under {threshold}")
+
+        prob_implicita_over = calcular_probabilidade_implicita(odd_over)
+        prob_implicita_under = calcular_probabilidade_implicita(odd_under)
+
+        prob_shots_on_goal_over *= 100
+        prob_shots_on_goal_under *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Over/Under {threshold} Chutes ao Gol):")
+        print(f"Over {threshold}: Prevista {prob_shots_on_goal_over:.2f}% | Implícita {prob_implicita_over:.2f}%")
+        print(f"Under {threshold}: Prevista {prob_shots_on_goal_under:.2f}% | Implícita {prob_implicita_under:.2f}%")
+
+        if prob_shots_on_goal_over > prob_implicita_over:
+            oportunidades.append(f"✅ Oportunidade (Chutes ao Gol): Over {threshold} (Odd: {odd_over:.2f}) - Probabilidade Prevista: {prob_shots_on_goal_over:.2f}% > Implícita: {prob_implicita_over:.2f}%")
+        if prob_shots_on_goal_under > prob_implicita_under:
+            oportunidades.append(f"✅ Oportunidade (Chutes ao Gol): Under {threshold} (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_shots_on_goal_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
+
+    # Mercado Over/Under Faltas
+    fouls_market = next((market for market in markets if market["key"] == "fouls"), None)
+    if fouls_market:
+        threshold = fouls_market["threshold"]
+        outcomes = fouls_market["outcomes"]
+        odd_over = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Over {threshold}")
+        odd_under = next(outcome["price"] for outcome in outcomes if outcome["name"] == f"Under {threshold}")
+
+        prob_implicita_over = calcular_probabilidade_implicita(odd_over)
+        prob_implicita_under = calcular_probabilidade_implicita(odd_under)
+
+        prob_fouls_over *= 100
+        prob_fouls_under *= 100
+
+        print(f"\n📊 Comparação de Probabilidades (Over/Under {threshold} Faltas):")
+        print(f"Over {threshold}: Prevista {prob_fouls_over:.2f}% | Implícita {prob_implicita_over:.2f}%")
+        print(f"Under {threshold}: Prevista {prob_fouls_under:.2f}% | Implícita {prob_implicita_under:.2f}%")
+
+        if prob_fouls_over > prob_implicita_over:
+            oportunidades.append(f"✅ Oportunidade (Faltas): Over {threshold} (Odd: {odd_over:.2f}) - Probabilidade Prevista: {prob_fouls_over:.2f}% > Implícita: {prob_implicita_over:.2f}%")
+        if prob_fouls_under > prob_implicita_under:
+            oportunidades.append(f"✅ Oportunidade (Faltas): Under {threshold} (Odd: {odd_under:.2f}) - Probabilidade Prevista: {prob_fouls_under:.2f}% > Implícita: {prob_implicita_under:.2f}%")
+        
+        
+        if not oportunidades:
+            oportunidades.append("ℹ️ Nenhuma oportunidade de aposta identificada.")
 
     return oportunidades
 
@@ -712,6 +824,72 @@ def processar_confronto(nome_a: str, time_id_a: int, temporada_a: int, nome_b: s
     media_red_cards = medias_estatisticas.get("red_cards", 0)
     media_cards = media_yellow_cards + media_red_cards * 2  # Considerando vermelho como 2 cartões
     prob_cards_over, prob_cards_under = 0.0, 0.0  # Será ajustado dinamicamente
+    
+    # Calcular probabilidades para escanteios (usando threshold dinâmico depois)
+    media_corners = medias_estatisticas.get("corners", 0)
+    prob_corners_over, prob_corners_under = 0.0, 0.0  # Será ajustado dinamicamente com base no threshold
+
+    # Calcular probabilidades para cartões (amarelos + vermelhos)
+    media_yellow_cards = medias_estatisticas.get("yellow_cards", 0)
+    media_red_cards = medias_estatisticas.get("red_cards", 0)
+    media_cards = media_yellow_cards + media_red_cards * 2  # Considerando vermelho como 2 cartões
+    prob_cards_over, prob_cards_under = 0.0, 0.0  # Será ajustado dinamicamente
+
+    # Calcular probabilidades para finalizações totais
+    media_total_shots = medias_estatisticas.get("total_shots", 0)
+    prob_total_shots_over, prob_total_shots_under = 0.0, 0.0  # Será ajustado dinamicamente
+
+    # Calcular probabilidades para chutes ao gol
+    media_shots_on_goal = medias_estatisticas.get("shots_on_goal", 0)
+    prob_shots_on_goal_over, prob_shots_on_goal_under = 0.0, 0.0  # Será ajustado dinamicamente
+
+    # Calcular probabilidades para faltas
+    media_fouls = medias_estatisticas.get("fouls", 0)
+    prob_fouls_over, prob_fouls_under = 0.0, 0.0  # Será ajustado dinamicamente
+
+    odds = buscar_odds(nome_a, nome_b, time_id_a, time_id_b, temporada_a)
+    if odds:
+        # Ajustar probabilidades de escanteios, cartões, finalizações, chutes ao gol e faltas com base nos thresholds retornados
+        markets = odds["bookmakers"][0]["markets"]
+        corners_market = next((market for market in markets if market["key"] == "corners"), None)
+        if corners_market:
+            threshold_corners = corners_market["threshold"]
+            prob_corners_over, prob_corners_under = calcular_probabilidade_over_under_estatistica(media_corners, threshold_corners)
+        
+        cards_market = next((market for market in markets if market["key"] == "cards"), None)
+        if cards_market:
+            threshold_cards = cards_market["threshold"]
+            prob_cards_over, prob_cards_under = calcular_probabilidade_over_under_estatistica(media_cards, threshold_cards)
+        
+        total_shots_market = next((market for market in markets if market["key"] == "total_shots"), None)
+        if total_shots_market:
+            threshold_total_shots = total_shots_market["threshold"]
+            prob_total_shots_over, prob_total_shots_under = calcular_probabilidade_over_under_estatistica(media_total_shots, threshold_total_shots)
+        
+        shots_on_goal_market = next((market for market in markets if market["key"] == "shots_on_goal"), None)
+        if shots_on_goal_market:
+            threshold_shots_on_goal = shots_on_goal_market["threshold"]
+            prob_shots_on_goal_over, prob_shots_on_goal_under = calcular_probabilidade_over_under_estatistica(media_shots_on_goal, threshold_shots_on_goal)
+        
+        fouls_market = next((market for market in markets if market["key"] == "fouls"), None)
+        if fouls_market:
+            threshold_fouls = fouls_market["threshold"]
+            prob_fouls_over, prob_fouls_under = calcular_probabilidade_over_under_estatistica(media_fouls, threshold_fouls)
+
+        print("\n💡 Oportunidades de Apostas:")
+        oportunidades = identificar_oportunidades(
+            prob_vitoria_a, prob_empate, prob_vitoria_b,
+            prob_over, prob_under, prob_btts_yes, prob_btts_no,
+            prob_corners_over, prob_corners_under, prob_cards_over, prob_cards_under,
+            prob_total_shots_over, prob_total_shots_under,
+            prob_shots_on_goal_over, prob_shots_on_goal_under,
+            prob_fouls_over, prob_fouls_under,
+            odds, nome_a, nome_b
+        )
+        for oportunidade in oportunidades:
+            print(oportunidade)
+    else:
+        print("\n❌ Não foi possível obter odds para este confronto.")
 
     odds = buscar_odds(nome_a, nome_b, time_id_a, time_id_b, temporada_a)
     if odds:
