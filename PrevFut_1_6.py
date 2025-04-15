@@ -816,101 +816,66 @@ def processar_confronto(nome_a: str, time_id_a: int, temporada_a: int, nome_b: s
     prob_over, prob_under = calcular_probabilidade_over_under(lambda_a, lambda_b, 2.5)
     prob_btts_yes, prob_btts_no = calcular_probabilidade_btts(lambda_a, lambda_b)
     
-    # Calcular probabilidades para escanteios (usando threshold dinâmico depois)
-    media_corners = medias_estatisticas.get("corners", 0)
-    prob_corners_over, prob_corners_under = 0.0, 0.0  # Será ajustado dinamicamente com base no threshold
-    
-    # Calcular probabilidades para cartões (amarelos + vermelhos)
-    media_yellow_cards = medias_estatisticas.get("yellow_cards", 0)
-    media_red_cards = medias_estatisticas.get("red_cards", 0)
-    media_cards = media_yellow_cards + media_red_cards * 2  # Considerando vermelho como 2 cartões
-    prob_cards_over, prob_cards_under = 0.0, 0.0  # Será ajustado dinamicamente
-    
-    # Calcular probabilidades para escanteios (usando threshold dinâmico depois)
-    media_corners = medias_estatisticas.get("corners", 0)
-    prob_corners_over, prob_corners_under = 0.0, 0.0  # Será ajustado dinamicamente com base no threshold
+    # Inicializar probabilidades para outros mercados
+    prob_corners_over = prob_corners_under = 0.0
+    prob_cards_over = prob_cards_under = 0.0
+    prob_total_shots_over = prob_total_shots_under = 0.0
+    prob_shots_on_goal_over = prob_shots_on_goal_under = 0.0
+    prob_fouls_over = prob_fouls_under = 0.0
 
-    # Calcular probabilidades para cartões (amarelos + vermelhos)
-    media_yellow_cards = medias_estatisticas.get("yellow_cards", 0)
-    media_red_cards = medias_estatisticas.get("red_cards", 0)
-    media_cards = media_yellow_cards + media_red_cards * 2  # Considerando vermelho como 2 cartões
-    prob_cards_over, prob_cards_under = 0.0, 0.0  # Será ajustado dinamicamente
-
-    # Calcular probabilidades para finalizações totais
-    media_total_shots = medias_estatisticas.get("total_shots", 0)
-    prob_total_shots_over, prob_total_shots_under = 0.0, 0.0  # Será ajustado dinamicamente
-
-    # Calcular probabilidades para chutes ao gol
-    media_shots_on_goal = medias_estatisticas.get("shots_on_goal", 0)
-    prob_shots_on_goal_over, prob_shots_on_goal_under = 0.0, 0.0  # Será ajustado dinamicamente
-
-    # Calcular probabilidades para faltas
-    media_fouls = medias_estatisticas.get("fouls", 0)
-    prob_fouls_over, prob_fouls_under = 0.0, 0.0  # Será ajustado dinamicamente
-
+    # Buscar odds apenas uma vez
     odds = buscar_odds(nome_a, nome_b, time_id_a, time_id_b, temporada_a)
+    
     if odds:
-        # Ajustar probabilidades de escanteios, cartões, finalizações, chutes ao gol e faltas com base nos thresholds retornados
+        # Ajustar probabilidades com base nos thresholds das odds
         markets = odds["bookmakers"][0]["markets"]
+        
+        # Escanteios
         corners_market = next((market for market in markets if market["key"] == "corners"), None)
         if corners_market:
             threshold_corners = corners_market["threshold"]
+            media_corners = medias_estatisticas.get("corners", 0)
             prob_corners_over, prob_corners_under = calcular_probabilidade_over_under_estatistica(media_corners, threshold_corners)
         
+        # Cartões
         cards_market = next((market for market in markets if market["key"] == "cards"), None)
         if cards_market:
             threshold_cards = cards_market["threshold"]
+            media_yellow = medias_estatisticas.get("yellow_cards", 0)
+            media_red = medias_estatisticas.get("red_cards", 0)
+            media_cards = media_yellow + media_red * 2
             prob_cards_over, prob_cards_under = calcular_probabilidade_over_under_estatistica(media_cards, threshold_cards)
-        
+
+        # Finalizações Totais
         total_shots_market = next((market for market in markets if market["key"] == "total_shots"), None)
         if total_shots_market:
-            threshold_total_shots = total_shots_market["threshold"]
-            prob_total_shots_over, prob_total_shots_under = calcular_probabilidade_over_under_estatistica(media_total_shots, threshold_total_shots)
-        
-        shots_on_goal_market = next((market for market in markets if market["key"] == "shots_on_goal"), None)
-        if shots_on_goal_market:
-            threshold_shots_on_goal = shots_on_goal_market["threshold"]
-            prob_shots_on_goal_over, prob_shots_on_goal_under = calcular_probabilidade_over_under_estatistica(media_shots_on_goal, threshold_shots_on_goal)
-        
+            threshold_shots = total_shots_market["threshold"]
+            media_shots = medias_estatisticas.get("total_shots", 0)
+            prob_total_shots_over, prob_total_shots_under = calcular_probabilidade_over_under_estatistica(media_shots, threshold_shots)
+
+        # Chutes ao Gol
+        shots_market = next((market for market in markets if market["key"] == "shots_on_goal"), None)
+        if shots_market:
+            threshold_shots_on = shots_market["threshold"]
+            media_shots_on = medias_estatisticas.get("shots_on_goal", 0)
+            prob_shots_on_goal_over, prob_shots_on_goal_under = calcular_probabilidade_over_under_estatistica(media_shots_on, threshold_shots_on)
+
+        # Faltas
         fouls_market = next((market for market in markets if market["key"] == "fouls"), None)
         if fouls_market:
             threshold_fouls = fouls_market["threshold"]
+            media_fouls = medias_estatisticas.get("fouls", 0)
             prob_fouls_over, prob_fouls_under = calcular_probabilidade_over_under_estatistica(media_fouls, threshold_fouls)
 
         print("\n💡 Oportunidades de Apostas:")
         oportunidades = identificar_oportunidades(
             prob_vitoria_a, prob_empate, prob_vitoria_b,
             prob_over, prob_under, prob_btts_yes, prob_btts_no,
-            prob_corners_over, prob_corners_under, prob_cards_over, prob_cards_under,
+            prob_corners_over, prob_corners_under, 
+            prob_cards_over, prob_cards_under,
             prob_total_shots_over, prob_total_shots_under,
             prob_shots_on_goal_over, prob_shots_on_goal_under,
             prob_fouls_over, prob_fouls_under,
-            odds, nome_a, nome_b
-        )
-        for oportunidade in oportunidades:
-            print(oportunidade)
-    else:
-        print("\n❌ Não foi possível obter odds para este confronto.")
-
-    odds = buscar_odds(nome_a, nome_b, time_id_a, time_id_b, temporada_a)
-    if odds:
-        # Ajustar probabilidades de escanteios e cartões com base nos thresholds retornados
-        markets = odds["bookmakers"][0]["markets"]
-        corners_market = next((market for market in markets if market["key"] == "corners"), None)
-        if corners_market:
-            threshold_corners = corners_market["threshold"]
-            prob_corners_over, prob_corners_under = calcular_probabilidade_over_under_estatistica(media_corners, threshold_corners)
-        
-        cards_market = next((market for market in markets if market["key"] == "cards"), None)
-        if cards_market:
-            threshold_cards = cards_market["threshold"]
-            prob_cards_over, prob_cards_under = calcular_probabilidade_over_under_estatistica(media_cards, threshold_cards)
-
-        print("\n💡 Oportunidades de Apostas:")
-        oportunidades = identificar_oportunidades(
-            prob_vitoria_a, prob_empate, prob_vitoria_b,
-            prob_over, prob_under, prob_btts_yes, prob_btts_no,
-            prob_corners_over, prob_corners_under, prob_cards_over, prob_cards_under,
             odds, nome_a, nome_b
         )
         for oportunidade in oportunidades:
