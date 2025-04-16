@@ -206,7 +206,7 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
     confidence_intervals = {}
     for stat in team_a_weighted.keys():
         # Previsão para Time A
-        a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("scored", "conceded").replace("committed",叉 "suffered")]) * 1.2 / 2
+        a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) * 1.2 / 2
         # Previsão para Time B
         b_pred = (team_b_weighted[stat] + team_a_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) / 1.2 / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
@@ -344,7 +344,7 @@ def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, p
     for bet in value_bets:
         ws.append([bet["market"], bet["bet"], bet["value"], bet["odd"], bet["implied_prob"], bet["predicted_prob"]])
 
-    filename = f"previsao_{team_a['team']['name']}_vs_{team_b['team']['name']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"previsao_{team_a['team']['name']}_vs_{team_b['team']['name']}_{datetime.now().strftime('%Y%m%d_%H%M%*S')}.xlsx"
     wb.save(filename)
     return filename
 
@@ -458,7 +458,7 @@ def main():
                 st.session_state["weighted_b"] = weighted_b
 
                 df_a = pd.DataFrame({
-                    "Estatística": simple_a.keys(),
+                    "Estatísica": simple_a.keys(),
                     "Média Simples": simple_a.values(),
                     "Média Ponderada": weighted_a.values()
                 })
