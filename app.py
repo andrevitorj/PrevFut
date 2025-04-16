@@ -68,18 +68,21 @@ def get_team_games(team_id, season, home=True, limit=10):
     params = {
         "team": team_id,
         "season": season,
-        "last": limit,
-        "status": "FT"
+        "last": limit
     }
     if home:
         params["venue"] = "home"
     else:
         params["venue"] = "away"
     try:
-        st.write(f"Buscando jogos para time {team_id}, temporada {season}, {'casa' if home else 'fora'}")
+        st.write(f"Buscando jogos para time ID {team_id}, temporada {season}, {'casa' if home else 'fora'}")
+        st.write(f"URL completa: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
         response = requests.get(url, headers=HEADERS, params=params)
+        st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
-            games = response.json().get("response", [])
+            data = response.json()
+            st.write(f"Resposta completa da API: {json.dumps(data, indent=2)}")
+            games = data.get("response", [])
             st.write(f"Encontrados {len(games)} jogos")
             return games
         st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
@@ -248,7 +251,6 @@ def predict_score(team_a_weighted, team_b_weighted):
 
 # Função para buscar odds (simulada)
 def get_odds(fixture_id):
-    # Simulação até termos um fixture_id real
     st.warning("Odds simuladas. Forneça um fixture_id real para dados reais.")
     return [
         {
@@ -344,7 +346,7 @@ def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, p
     for bet in value_bets:
         ws.append([bet["market"], bet["bet"], bet["value"], bet["odd"], bet["implied_prob"], bet["predicted_prob"]])
 
-    filename = f"previsao_{team_a['team']['name']}_vs_{team_b['team']['name']}_{datetime.now().strftime('%Y%m%d_%H%M%*S')}.xlsx"
+    filename = f"previsao_{team_a['team']['name']}_vs_{team_b['team']['name']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     wb.save(filename)
     return filename
 
@@ -458,7 +460,7 @@ def main():
                 st.session_state["weighted_b"] = weighted_b
 
                 df_a = pd.DataFrame({
-                    "Estatísica": simple_a.keys(),
+                    "Estatística": simple_a.keys(),
                     "Média Simples": simple_a.values(),
                     "Média Ponderada": weighted_a.values()
                 })
