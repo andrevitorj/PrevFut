@@ -76,9 +76,12 @@ def get_team_games(team_id, season, home=True, limit=10):
     else:
         params["venue"] = "away"
     try:
+        st.write(f"Buscando jogos para time {team_id}, temporada {season}, {'casa' if home else 'fora'}")
         response = requests.get(url, headers=HEADERS, params=params)
         if response.status_code == 200:
-            return response.json().get("response", [])
+            games = response.json().get("response", [])
+            st.write(f"Encontrados {len(games)} jogos")
+            return games
         st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
         return []
     except Exception as e:
@@ -126,46 +129,51 @@ def calculate_averages(games, team_id, weights):
     }
     weighted_stats = stats.copy()
 
+    st.write(f"Processando {len(games)} jogos para o time {team_id}")
     for game in games:
         game_stats = get_game_stats(game["fixture"]["id"])
         if not game_stats:
+            st.warning(f"Sem estatísticas para o jogo {game['fixture']['id']}")
             continue
 
         team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
         opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
         if not team_stats or not opponent_stats:
+            st.warning(f"Estatísticas incompletas para o jogo {game['fixture']['id']}")
             continue
 
         # Extrair estatísticas
         team_data = {k: 0 for k in stats.keys()}
         for stat in team_stats["statistics"]:
-            if stat["type"] == "Goals":
+            if stat["type"].lower() == "goals scored":
                 team_data["goals_scored"] = stat["value"] or 0
-            elif stat["type"] == "Shots total":
+            elif stat["type"].lower() == "goals conceded":
+                team_data["goals_conceded"] = stat["value"] or 0
+            elif stat["type"].lower() == "shots total":
                 team_data["shots"] = stat["value"] or 0
-            elif stat["type"] == "Shots on Goal":
+            elif stat["type"].lower() == "shots on goal":
                 team_data["shots_on_target"] = stat["value"] or 0
-            elif stat["type"] == "Corner Kicks":
+            elif stat["type"].lower() == "corner kicks":
                 team_data["corners"] = stat["value"] or 0
-            elif stat["type"] == "Ball Possession":
+            elif stat["type"].lower() == "ball possession":
                 team_data["possession"] = float(stat["value"].replace("%", "")) if stat["value"] else 0
-            elif stat["type"] == "Offsides":
+            elif stat["type"].lower() == "offsides":
                 team_data["offsides"] = stat["value"] or 0
-            elif stat["type"] == "Fouls":
+            elif stat["type"].lower() == "fouls":
                 team_data["fouls_committed"] = stat["value"] or 0
-            elif stat["type"] == "Yellow Cards":
+            elif stat["type"].lower() == "yellow cards":
                 team_data["yellow_cards"] = stat["value"] or 0
-            elif stat["type"] == "Red Cards":
+            elif stat["type"].lower() == "red cards":
                 team_data["red_cards"] = stat["value"] or 0
-            elif stat["type"] == "Passes accurate":
+            elif stat["type"].lower() == "passes accurate":
                 team_data["passes_accurate"] = stat["value"] or 0
-            elif stat["type"] == "Passes missed":
+            elif stat["type"].lower() == "passes missed":
                 team_data["passes_missed"] = stat["value"] or 0
-            elif stat["type"] == "expected_goals":
+            elif stat["type"].lower() == "expected goals":
                 team_data["xg"] = float(stat["value"]) if stat["value"] else 0
-            elif stat["type"] == "expected_goals_against":
+            elif stat["type"].lower() == "expected goals against":
                 team_data["xga"] = float(stat["value"]) if stat["value"] else 0
-            elif stat["type"] == "Free Kicks":
+            elif stat["type"].lower() == "free kicks":
                 team_data["free_kicks"] = stat["value"] or 0
 
         opponent_id = opponent_stats["team"]["id"]
@@ -189,6 +197,7 @@ def calculate_averages(games, team_id, weights):
 
     simple_averages = {k: np.mean(v) if v else 0 for k, v in stats.items()}
     weighted_averages = {k: np.mean(v) if v else 0 for k, v in weighted_stats.items()}
+    st.write(f"Médias calculadas: {simple_averages}")
     return simple_averages, weighted_averages
 
 # Função para prever estatísticas
@@ -197,7 +206,7 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
     confidence_intervals = {}
     for stat in team_a_weighted.keys():
         # Previsão para Time A
-        a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) * 1.2 / 2
+        a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("scored", "conceded").replace("committed",叉 "suffered")]) * 1.2 / 2
         # Previsão para Time B
         b_pred = (team_b_weighted[stat] + team_a_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) / 1.2 / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
@@ -237,19 +246,32 @@ def predict_score(team_a_weighted, team_b_weighted):
         "ci": {"team_a": ci_a, "team_b": ci_b}
     }
 
-# Função para buscar odds
+# Função para buscar odds (simulada)
 def get_odds(fixture_id):
-    url = f"{API_BASE_URL}/odds"
-    params = {"fixture": fixture_id}
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            return response.json().get("response", [])
-        st.error(f"Erro ao buscar odds: {response.status_code} - {response.text}")
-        return []
-    except Exception as e:
-        st.error(f"Erro ao buscar odds: {str(e)}")
-        return []
+    # Simulação até termos um fixture_id real
+    st.warning("Odds simuladas. Forneça um fixture_id real para dados reais.")
+    return [
+        {
+            "bookmaker": {"name": "Bet365"},
+            "bets": [
+                {
+                    "name": "Match Winner",
+                    "values": [
+                        {"value": "Home", "odd": "1.80"},
+                        {"value": "Draw", "odd": "3.50"},
+                        {"value": "Away", "odd": "4.00"}
+                    ]
+                },
+                {
+                    "name": "Both Teams To Score",
+                    "values": [
+                        {"value": "Yes", "odd": "1.90"},
+                        {"value": "No", "odd": "1.85"}
+                    ]
+                }
+            ]
+        }
+    ]
 
 # Função para comparar odds e previsões
 def compare_odds(predicted_stats, score_pred, odds):
@@ -389,16 +411,33 @@ def main():
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state["season_a"]
             season_b = st.session_state["season_b"]
+            st.write("Buscando jogos...")
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
-            st.write("Jogos do Time A (Mandante):")
-            for game in games_a:
-                with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']}"):
-                    st.json(get_game_stats(game["fixture"]["id"]))
-            st.write("Jogos do Time B (Visitante):")
-            for game in games_b:
-                with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']}"):
-                    st.json(get_game_stats(game["fixture"]["id"]))
+            if games_a:
+                st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
+                for game in games_a:
+                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {game['fixture']['date']}"):
+                        stats = get_game_stats(game["fixture"]["id"])
+                        if stats:
+                            st.json(stats)
+                        else:
+                            st.warning("Nenhuma estatística disponível para este jogo.")
+            else:
+                st.warning(f"Nenhum jogo encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}.")
+            if games_b:
+                st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
+                for game in games_b:
+                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {game['fixture']['date']}"):
+                        stats = get_game_stats(game["fixture"]["id"])
+                        if stats:
+                            st.json(stats)
+                        else:
+                            st.warning("Nenhuma estatística disponível para este jogo.")
+            else:
+                st.warning(f"Nenhum jogo encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}.")
+        else:
+            st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
 
     # Aba 3: Médias
     with tabs[2]:
@@ -407,33 +446,40 @@ def main():
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state["season_a"]
             season_b = st.session_state["season_b"]
+            st.write("Calculando médias...")
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
-            simple_a, weighted_a = calculate_averages(games_a, team_a_id, weights)
-            simple_b, weighted_b = calculate_averages(games_b, team_b_id, weights)
-            st.session_state["simple_a"] = simple_a
-            st.session_state["weighted_a"] = weighted_a
-            st.session_state["simple_b"] = simple_b
-            st.session_state["weighted_b"] = weighted_b
+            if games_a and games_b:
+                simple_a, weighted_a = calculate_averages(games_a, team_a_id, weights)
+                simple_b, weighted_b = calculate_averages(games_b, team_b_id, weights)
+                st.session_state["simple_a"] = simple_a
+                st.session_state["weighted_a"] = weighted_a
+                st.session_state["simple_b"] = simple_b
+                st.session_state["weighted_b"] = weighted_b
 
-            df_a = pd.DataFrame({
-                "Estatística": simple_a.keys(),
-                "Média Simples": simple_a.values(),
-                "Média Ponderada": weighted_a.values()
-            })
-            df_b = pd.DataFrame({
-                "Estatística": simple_b.keys(),
-                "Média Simples": simple_b.values(),
-                "Média Ponderada": weighted_b.values()
-            })
-            st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
-            st.dataframe(df_a)
-            st.write(f"Médias do Time B ({st.session_state['team_b']['team']['name']}):")
-            st.dataframe(df_b)
+                df_a = pd.DataFrame({
+                    "Estatística": simple_a.keys(),
+                    "Média Simples": simple_a.values(),
+                    "Média Ponderada": weighted_a.values()
+                })
+                df_b = pd.DataFrame({
+                    "Estatística": simple_b.keys(),
+                    "Média Simples": simple_b.values(),
+                    "Média Ponderada": weighted_b.values()
+                })
+                st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
+                st.dataframe(df_a)
+                st.write(f"Médias do Time B ({st.session_state['team_b']['team']['name']}):")
+                st.dataframe(df_b)
+            else:
+                st.warning("Não foi possível calcular médias. Verifique se há jogos disponíveis na aba 'Jogos Analisados'.")
+        else:
+            st.info("Selecione os times na aba 'Seleção de Times' para calcular as médias.")
 
     # Aba 4: Estatísticas Previstas
     with tabs[3]:
         if "simple_a" in st.session_state:
+            st.write("Gerando previsões...")
             predicted_stats, confidence_intervals = predict_stats(
                 st.session_state["simple_a"], st.session_state["weighted_a"],
                 st.session_state["simple_b"], st.session_state["weighted_b"]
@@ -451,10 +497,13 @@ def main():
                 for stat, pred in predicted_stats.items()
             ])
             st.dataframe(df_pred)
+        else:
+            st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
 
     # Aba 5: Placar Provável
     with tabs[4]:
         if "weighted_a" in st.session_state:
+            st.write("Calculando placar provável...")
             score_pred = predict_score(st.session_state["weighted_a"], st.session_state["weighted_b"])
             st.session_state["score_pred"] = score_pred
             st.write(f"Placar mais provável: {score_pred['score']}")
@@ -463,24 +512,29 @@ def main():
             st.write(f"Probabilidade de Derrota: {score_pred['probs']['loss']:.2%}")
             st.write(f"Intervalo de Confiança (Gols {st.session_state['team_a']['team']['name']}): [{score_pred['ci']['team_a'][0]:.2f}, {score_pred['ci']['team_a'][1]:.2f}]")
             st.write(f"Intervalo de Confiança (Gols {st.session_state['team_b']['team']['name']}): [{score_pred['ci']['team_b'][0]:.2f}, {score_pred['ci']['team_b'][1]:.2f}]")
+        else:
+            st.info("Calcule as médias na aba 'Médias' para prever o placar.")
 
     # Aba 6: Odds x Previsão
     with tabs[5]:
         if "predicted_stats" in st.session_state:
-            # Simulação de fixture_id (em produção, obter via API)
-            odds = get_odds(12345)  # Substituir por chamada real
+            st.write("Comparando odds...")
+            odds = get_odds(12345)  # Simulado
             value_bets = compare_odds(st.session_state["predicted_stats"], st.session_state["score_pred"], odds)
             st.session_state["value_bets"] = value_bets
             if value_bets:
                 df_odds = pd.DataFrame(value_bets)
                 st.dataframe(df_odds)
             else:
-                st.write("Nenhuma aposta de valor encontrada.")
+                st.warning("Nenhuma aposta de valor encontrada.")
+        else:
+            st.info("Gere previsões na aba 'Estatísticas Previstas' para comparar odds.")
 
     # Aba 7: Exportar
     with tabs[6]:
         if "team_a" in st.session_state and "predicted_stats" in st.session_state:
             if st.button("Exportar Resultados"):
+                st.write("Exportando resultados...")
                 filename = export_results(
                     st.session_state["team_a"], st.session_state["team_b"],
                     st.session_state["simple_a"], st.session_state["weighted_a"],
@@ -491,6 +545,8 @@ def main():
                 with open(filename, "rb") as f:
                     st.download_button("Baixar .xlsx", f, file_name=filename)
                 st.success("Resultados exportados com sucesso!")
+        else:
+            st.info("Complete as previsões nas abas anteriores para exportar os resultados.")
 
 if __name__ == "__main__":
     main()
