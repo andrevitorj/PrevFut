@@ -65,6 +65,18 @@ def load_weights():
             "Saudi Pro League": 0.74
         }
 
+# Mapeamento de nomes de ligas da API para pesos.json
+LEAGUE_MAPPING = {
+    "Serie B": "Brasileirão B",
+    "Paranaense - 1": "Estaduais Fracos",
+    "Campeonato Paranaense": "Estaduais Fracos",
+    "Brasileiro Serie A": "Brasileirão A",
+    "Copa Libertadores": "Libertadores",
+    "Copa Sudamericana": "Sul-Americana",
+    "Serie B Brasil": "Brasileirão B",
+    "Paranaense 1ª Divisão": "Estaduais Fracos"
+}
+
 # Função para buscar times
 def search_team(team_name):
     if not API_KEY:
@@ -166,7 +178,9 @@ def get_team_leagues(team_id, season):
     try:
         response = requests.get(url, headers=HEADERS, params=params)
         if response.status_code == 200:
-            return response.json().get("response", [])
+            leagues = response.json().get("response", [])
+            st.write(f"Ligas encontradas para time {team_id}, temporada {season}: {json.dumps(leagues, indent=2)}")
+            return leagues
         st.error(f"Erro ao buscar ligas: {response.status_code} - {response.text}")
         return []
     except Exception as e:
@@ -184,7 +198,8 @@ def calculate_averages(games, team_id, weights):
         "passes_accurate": [], "passes_missed": [],
         "xg": [], "xga": [], "free_kicks": []
     }
-    weighted_stats = stats.copy()
+    weighted_values = {k: [] for k in stats.keys()}
+    game_weights = {k: [] for k in stats.keys()}  # Pesos separados por estatística
 
     st.write(f"Processando {len(games)} jogos para o time {team_id}")
     for game in games:
@@ -233,28 +248,44 @@ def calculate_averages(games, team_id, weights):
         else:
             st.warning(f"Sem estatísticas para o jogo {game['fixture']['id']}. Usando apenas gols de /fixtures.")
 
+        # Determinar peso do jogo
         opponent_id = game["teams"]["away"]["id"] if is_home else game["teams"]["home"]["id"]
         leagues = get_team_leagues(opponent_id, game["league"]["season"])
-        max_weight = 0.50
-        for league in leagues:
-            league_name = league["league"]["name"]
-            weight = weights.get(league_name, 0.50)
-            max_weight = max(max_weight, weight)
+        weight = 0.50  # Peso padrão
+        league_name = game["league"]["name"]
+        mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
+        if mapped_name in weights:
+            weight = weights[mapped_name]
+            st.write(f"Peso encontrado para {league_name} (mapeado como {mapped_name}): {weight}")
+        else:
+            st.write(f"Peso padrão {weight} usado para liga {league_name} (time {opponent_id})")
 
         # Média simples
         for key in stats:
             stats[key].append(team_data[key])
 
-        # Média ponderada
-        for key in weighted_stats:
+        # Valores ponderados
+        for key in weighted_values:
             if "conceded" in key or "suffered" in key:
-                weighted_stats[key].append(team_data[key] / max_weight)
+                # Para estatísticas negativas, dividir pelo peso (menos peso contra adversários fortes)
+                weighted_values[key].append(team_data[key] / max(weight, 0.1))  # Evitar divisão por zero
+                game_weights[key].append(1 / max(weight, 0.1))
             else:
-                weighted_stats[key].append(team_data[key] * max_weight)
+                # Para estatísticas positivas, multiplicar pelo peso
+                weighted_values[key].append(team_data[key] * weight)
+                game_weights[key].append(weight)
 
+    # Calcular médias
     simple_averages = {k: np.mean(v) if v else 0 for k, v in stats.items()}
-    weighted_averages = {k: np.mean(v) if v else 0 for k, v in weighted_stats.items()}
-    st.write(f"Médias calculadas: {simple_averages}")
+    weighted_averages = {}
+    for key in weighted_values:
+        weighted_sum = sum(weighted_values[key])
+        total_weight = sum(game_weights[key]) if game_weights[key] else 1
+        weighted_averages[key] = weighted_sum / total_weight if total_weight > 0 else 0
+
+    st.write(f"Médias simples calculadas: {simple_averages}")
+    st.write(f"Médias ponderadas calculadas: {weighted_averages}")
+    st.write(f"Pesos aplicados por estatística: {game_weights}")
     return simple_averages, weighted_averages
 
 # Função para prever estatísticas
