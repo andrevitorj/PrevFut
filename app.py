@@ -220,7 +220,7 @@ def calculate_averages(games, team_id, weights):
 
         if game_stats:
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
-            opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None  None)
+            opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
             if not team_stats or not opponent_stats:
                 st.warning(f"Estatísticas incompletas para o jogo {game['fixture']['id']}")
             else:
