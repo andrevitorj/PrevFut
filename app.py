@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 
 # Carregar variáveis de ambiente
 load_dotenv()
-API_KEY = os.getenv("API_KEY", "f8004fe5cca0e75109a44ae6b_arquivo = openpyxl.Workbook()
+API_KEY = os.getenv("API_FOOTBALL_KEY")
+
 # Configuração da API
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {
@@ -327,6 +328,10 @@ def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, p
 
 # Função principal
 def main():
+    if not API_KEY:
+        st.error("Chave da API não encontrada. Configure 'API_FOOTBALL_KEY' nos secrets do Streamlit.")
+        return
+
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
@@ -373,6 +378,8 @@ def main():
             if st.button("Confirmar Seleção"):
                 st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
                 st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
+                st.session_state["season_a"] = season_a
+                st.session_state["season_b"] = season_b
                 st.success("Times selecionados com sucesso!")
 
     # Aba 2: Jogos Analisados
@@ -380,6 +387,8 @@ def main():
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
+            season_a = st.session_state["season_a"]
+            season_b = st.session_state["season_b"]
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             st.write("Jogos do Time A (Mandante):")
@@ -396,6 +405,8 @@ def main():
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
+            season_a = st.session_state["season_a"]
+            season_b = st.session_state["season_b"]
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             simple_a, weighted_a = calculate_averages(games_a, team_a_id, weights)
