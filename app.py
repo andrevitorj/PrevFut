@@ -99,10 +99,6 @@ def get_team_games(team_id, season, home=True, limit=10):
         "season": season,
         "last": limit
     }
-    if home:
-        params["venue"] = "home"
-    else:
-        params["venue"] = "away"
     try:
         st.write(f"Buscando jogos para time ID {team_id}, temporada {season}, {'casa' if home else 'fora'}")
         st.write(f"URL completa: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
@@ -113,8 +109,14 @@ def get_team_games(team_id, season, home=True, limit=10):
             data = response.json()
             st.write(f"Resposta completa da API: {json.dumps(data, indent=2)}")
             games = data.get("response", [])
-            st.write(f"Encontrados {len(games)} jogos")
-            return games
+            # Filtrar jogos como mandante ou visitante
+            filtered_games = [
+                game for game in games
+                if (home and game["teams"]["home"]["id"] == team_id) or
+                   (not home and game["teams"]["away"]["id"] == team_id)
+            ]
+            st.write(f"Encontrados {len(filtered_games)} jogos após filtro {'mandante' if home else 'visitante'}")
+            return filtered_games
         st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
         return []
     except Exception as e:
@@ -447,7 +449,7 @@ def main():
                         else:
                             st.warning("Nenhuma estatística disponível para este jogo.")
             else:
-                st.warning(f"Nenhum jogo encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}.")
+                st.warning(f"Nenhum jogo encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}. Tente outra temporada, como 2024.")
             if games_b:
                 st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
                 for game in games_b:
@@ -458,7 +460,7 @@ def main():
                         else:
                             st.warning("Nenhuma estatística disponível para este jogo.")
             else:
-                st.warning(f"Nenhum jogo encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}.")
+                st.warning(f"Nenhum jogo encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
 
