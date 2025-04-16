@@ -11,11 +11,11 @@ from dotenv import load_dotenv
 
 # Carregar variáveis de ambiente
 load_dotenv()
-API_KEY = os.getenv("API_KEY", "f8004fe5cca0e75109a44ae6b4cdd9a2")
-API_BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
+API_KEY = os.getenv("API_KEY", "f8004fe5cca0e75109a44ae6b_arquivo = openpyxl.Workbook()
+# Configuração da API
+API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {
-    "x-rapidapi-key": API_KEY,
-    "x-rapidapi-host": "api-football-v1.p.rapidapi.com"
+    "x-apisports-key": API_KEY
 }
 
 # Carregar pesos das competições
@@ -42,13 +42,24 @@ def load_weights():
         }
 
 # Função para buscar times
-def search_team(team_name, season):
+def search_team(team_name):
     url = f"{API_BASE_URL}/teams"
-    params = {"search": team_name, "season": season}
-    response = requests.get(url, headers=HEADERS, params=params)
-    if response.status_code == 200:
-        return response.json().get("response", [])
-    return []
+    params = {"search": team_name}
+    try:
+        st.write(f"Buscando times com nome: {team_name}")
+        st.write(f"URL: {url}?search={team_name}")
+        response = requests.get(url, headers=HEADERS, params=params)
+        st.write(f"Status da resposta: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
+            return data.get("response", [])
+        else:
+            st.error(f"Erro na API: {response.status_code} - {response.text}")
+            return []
+    except Exception as e:
+        st.error(f"Erro ao buscar times: {str(e)}")
+        return []
 
 # Função para buscar jogos
 def get_team_games(team_id, season, home=True, limit=10):
@@ -63,28 +74,43 @@ def get_team_games(team_id, season, home=True, limit=10):
         params["venue"] = "home"
     else:
         params["venue"] = "away"
-    response = requests.get(url, headers=HEADERS, params=params)
-    if response.status_code == 200:
-        return response.json().get("response", [])
-    return []
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            return response.json().get("response", [])
+        st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Erro ao buscar jogos: {str(e)}")
+        return []
 
 # Função para buscar estatísticas de um jogo
 def get_game_stats(fixture_id):
     url = f"{API_BASE_URL}/fixtures/statistics"
     params = {"fixture": fixture_id}
-    response = requests.get(url, headers=HEADERS, params=params)
-    if response.status_code == 200:
-        return response.json().get("response", [])
-    return []
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            return response.json().get("response", [])
+        st.error(f"Erro ao buscar estatísticas: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Erro ao buscar estatísticas: {str(e)}")
+        return []
 
 # Função para buscar competições de um time
 def get_team_leagues(team_id, season):
     url = f"{API_BASE_URL}/leagues"
     params = {"team": team_id, "season": season}
-    response = requests.get(url, headers=HEADERS, params=params)
-    if response.status_code == 200:
-        return response.json().get("response", [])
-    return []
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            return response.json().get("response", [])
+        st.error(f"Erro ao buscar ligas: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Erro ao buscar ligas: {str(e)}")
+        return []
 
 # Função para calcular médias
 def calculate_averages(games, team_id, weights):
@@ -214,10 +240,15 @@ def predict_score(team_a_weighted, team_b_weighted):
 def get_odds(fixture_id):
     url = f"{API_BASE_URL}/odds"
     params = {"fixture": fixture_id}
-    response = requests.get(url, headers=HEADERS, params=params)
-    if response.status_code == 200:
-        return response.json().get("response", [])
-    return []
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            return response.json().get("response", [])
+        st.error(f"Erro ao buscar odds: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Erro ao buscar odds: {str(e)}")
+        return []
 
 # Função para comparar odds e previsões
 def compare_odds(predicted_stats, score_pred, odds):
@@ -321,15 +352,24 @@ def main():
             season_b = st.selectbox("Temporada Time B", list(range(2020, 2026)), index=3)
 
         if st.button("Buscar Times"):
-            teams_a = search_team(team_a_name, season_a)
-            teams_b = search_team(team_b_name, season_b)
-            st.session_state["teams_a"] = teams_a
-            st.session_state["teams_b"] = teams_b
+            if len(team_a_name) < 3 or len(team_b_name) < 3:
+                st.error("O nome do time deve ter pelo menos 3 caracteres.")
+            else:
+                teams_a = search_team(team_a_name)
+                teams_b = search_team(team_b_name)
+                st.session_state["teams_a"] = teams_a
+                st.session_state["teams_b"] = teams_b
+                if not teams_a:
+                    st.error("Nenhum time encontrado para o Time A. Verifique a grafia ou tente outro nome.")
+                if not teams_b:
+                    st.error("Nenhum time encontrado para o Time B. Verifique a grafia ou tente outro nome.")
 
-        if "teams_a" in st.session_state and "teams_b" in st.session_state:
+        if "teams_a" in st.session_state and "teams_b" in st.session_state and st.session_state["teams_a"] and st.session_state["teams_b"]:
             st.subheader("Selecione os Times")
-            team_a_selected = st.selectbox("Time A", [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_a"]])
-            team_b_selected = st.selectbox("Time B", [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_b"]])
+            team_a_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_a"]]
+            team_b_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_b"]]
+            team_a_selected = st.selectbox("Time A", team_a_options, key="team_a_select")
+            team_b_selected = st.selectbox("Time B", team_b_options, key="team_b_select")
             if st.button("Confirmar Seleção"):
                 st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
                 st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
