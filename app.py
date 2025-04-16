@@ -1,11 +1,21 @@
 import streamlit as st
 import pandas as pd
-from PrevFut_1_6 import processar_confronto, buscar_id_time, detectar_temporada_atual
 from io import StringIO
 import sys
+from typing import Tuple, Optional, Dict, Any
+from PrevFut_1_6 import (
+    processar_confronto,
+    buscar_id_time,
+    detectar_temporada_atual,
+    load_cache
+)
 
-# Configurar página
-st.set_page_config(page_title="Previsão de Placar de Futebol", layout="wide")
+# Configuração da página
+st.set_page_config(
+    page_title="Previsão de Placar de Futebol",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # Título e descrição
 st.title("⚽ Previsão de Placar de Futebol - Versão 1.6")

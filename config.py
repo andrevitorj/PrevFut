@@ -48,14 +48,6 @@ COMPETICAO_PESOS: Dict[str, float] = {
     "Desconhecida": 0.5
 }
 
-# Configurações de Logging
-LOG_CONFIG = {
-    "filename": "prevfut.log",
-    "rotation": "500 MB",
-    "level": "INFO",
-    "format": "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
-}
-
 # Thresholds para análise de apostas
 THRESHOLD_VALOR = 0.1  # Diferença mínima para considerar uma oportunidade
 MIN_PROBABILIDADE = 0.15  # Probabilidade mínima para considerar uma aposta

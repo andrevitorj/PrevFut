@@ -13,31 +13,25 @@ from datetime import datetime, timedelta
 from typing import Tuple, Optional, Dict, List, Any
 from requests.exceptions import RequestException
 from scipy.stats import poisson
-from loguru import logger
 from dotenv import load_dotenv
+import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
 import json
 import os
+import sys
 
 # Carregar variáveis de ambiente
 load_dotenv()
 
-# Configuração de logging
-logger.add(
-    "prevfut.log",
-    rotation="500 MB",
-    level="INFO",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
-)
-
 # Configuração da API
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
-    logger.error("API_KEY não encontrada nas variáveis de ambiente")
+    st.error("API_KEY não encontrada nas variáveis de ambiente")
     raise ValueError("A variável de ambiente API_KEY não está definida. Configure-a no arquivo .env ou no Streamlit Cloud Secrets.")
 
+# Importar configurações
 from config import (
     BASE_URL,
     REQUEST_LIMIT_PER_MINUTE,
@@ -45,7 +39,6 @@ from config import (
     CACHE_FILE,
     ESTATISTICAS_MODELO,
     COMPETICAO_PESOS,
-    LOG_CONFIG,
     THRESHOLD_VALOR,
     MIN_PROBABILIDADE,
     MAX_ODD
@@ -53,9 +46,6 @@ from config import (
 
 # Configuração dos headers da API
 HEADERS = {"x-apisports-key": API_KEY}
-
-# Configuração do logger
-logger.configure(**LOG_CONFIG)
 
 def load_cache() -> Dict[str, Any]:
     """Carrega o cache do arquivo JSON.
@@ -66,10 +56,11 @@ def load_cache() -> Dict[str, Any]:
     try:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                logger.debug(f"Cache carregado de {CACHE_FILE}")
-                return json.load(f)
+                data = json.load(f)
+                st.debug(f"Cache carregado de {CACHE_FILE}")
+                return data
     except Exception as e:
-        logger.warning(f"Erro ao carregar cache: {e}")
+        st.warning(f"Erro ao carregar cache: {e}")
     return {}
 
 def save_cache(cache: Dict[str, Any]) -> None:
@@ -81,9 +72,9 @@ def save_cache(cache: Dict[str, Any]) -> None:
     try:
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
-            logger.debug(f"Cache salvo em {CACHE_FILE}")
+            st.debug(f"Cache salvo em {CACHE_FILE}")
     except Exception as e:
-        logger.error(f"Erro ao salvar cache: {e}")
+        st.error(f"Erro ao salvar cache: {e}")
 
 def make_api_request(url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Faz requisição à API com cache e tratamento de erros.
@@ -108,7 +99,7 @@ def make_api_request(url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any
         time.sleep(REQUEST_INTERVAL)
         
         # Fazer requisição
-        logger.info(f"Fazendo requisição para: {url}")
+        st.info(f"Fazendo requisição para: {url}")
         response = requests.get(
             url,
             headers=HEADERS,
@@ -120,20 +111,20 @@ def make_api_request(url: str, params: Dict[str, Any]) -> Optional[Dict[str, Any
         
         # Verificar erros da API
         if data.get("errors"):
-            logger.error(f"Erro da API: {data['errors']}")
+            st.error(f"Erro da API: {data['errors']}")
             return None
         
         # Salvar no cache
         cache[cache_key] = data
         save_cache(cache)
-        logger.debug(f"Dados salvos em cache para: {url}")
+        st.debug(f"Dados salvos em cache para: {url}")
         
         return data
         
     except RequestException as e:
-        logger.error(f"Erro na requisição HTTP: {e}")
+        st.error(f"Erro na requisição HTTP: {e}")
     except Exception as e:
-        logger.error(f"Erro inesperado: {e}")
+        st.error(f"Erro inesperado: {e}")
     
     return None
 
