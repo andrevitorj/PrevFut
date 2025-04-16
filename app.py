@@ -28,12 +28,12 @@ if not API_KEY:
 def test_api_key():
     url = f"{API_BASE_URL}/status"
     try:
-        st.write(f"Testando chave da API com endpoint: {url}")
+        # st.write(f"Testando chave da API com endpoint: {url}")
         response = requests.get(url, headers=HEADERS)
-        st.write(f"Status da resposta: {response.status_code}")
+        # st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
-            data = response.json()
-            st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
+            # data = response.json()
+            # st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
             return True
         else:
             st.error(f"Erro ao testar chave: {response.status_code} - {response.text}")
@@ -85,13 +85,13 @@ def search_team(team_name):
     url = f"{API_BASE_URL}/teams"
     params = {"search": team_name}
     try:
-        st.write(f"Buscando times com nome: {team_name}")
-        st.write(f"URL: {url}?search={team_name}")
+        # st.write(f"Buscando times com nome: {team_name}")
+        # st.write(f"URL: {url}?search={team_name}")
         response = requests.get(url, headers=HEADERS, params=params)
-        st.write(f"Status da resposta: {response.status_code}")
+        # st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
-            st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
+            # st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
             return data.get("response", [])
         else:
             st.error(f"Erro na API: {response.status_code} - {response.text}")
@@ -101,7 +101,7 @@ def search_team(team_name):
         return []
 
 # Função para buscar jogos
-def get_team_games(team_id, season, home=True, limit=10):
+def get_team_games(team_id, season, home=True, limit=20):
     if not API_KEY:
         st.error("Chave da API não configurada.")
         return []
@@ -113,14 +113,14 @@ def get_team_games(team_id, season, home=True, limit=10):
         "status": "FT"  # Apenas jogos finalizados
     }
     try:
-        st.write(f"Buscando jogos para time ID {team_id}, temporada {season}, {'casa' if home else 'fora'}")
-        st.write(f"URL completa: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
-        st.write(f"Cabeçalho enviado: {{'x-apisports-key': '***{API_KEY[-4:]}'}}")
+        # st.write(f"Buscando jogos para time ID {team_id}, temporada {season}, {'casa' if home else 'fora'}")
+        # st.write(f"URL completa: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
+        # st.write(f"Cabeçalho enviado: {{'x-apisports-key': '***{API_KEY[-4:]}'}}")
         response = requests.get(url, headers=HEADERS, params=params)
-        st.write(f"Status da resposta: {response.status_code}")
+        # st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
-            st.write(f"Resposta completa da API: {json.dumps(data, indent=2)}")
+            # st.write(f"Resposta completa da API: {json.dumps(data, indent=2)}")
             games = data.get("response", [])
             # Filtrar jogos como mandante ou visitante
             filtered_games = [
@@ -128,12 +128,12 @@ def get_team_games(team_id, season, home=True, limit=10):
                 if (home and game["teams"]["home"]["id"] == team_id) or
                    (not home and game["teams"]["away"]["id"] == team_id)
             ]
-            st.write(f"Encontrados {len(filtered_games)} jogos após filtro {'mandante' if home else 'visitante'}")
+            # st.write(f"Encontrados {len(filtered_games)} jogos após filtro {'mandante' if home else 'visitante'}")
             # Fallback para temporada anterior se não houver jogos
             if not filtered_games and season == 2025:
                 st.warning(f"Nenhum jogo finalizado encontrado para temporada {season}. Tentando temporada {season-1}...")
                 params["season"] = season - 1
-                st.write(f"Nova URL: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
+                # st.write(f"Nova URL: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
                 response = requests.get(url, headers=HEADERS, params=params)
                 if response.status_code == 200:
                     data = response.json()
@@ -143,7 +143,7 @@ def get_team_games(team_id, season, home=True, limit=10):
                         if (home and game["teams"]["home"]["id"] == team_id) or
                            (not home and game["teams"]["away"]["id"] == team_id)
                     ]
-                    st.write(f"Encontrados {len(filtered_games)} jogos na temporada {season-1}")
+                    # st.write(f"Encontrados {len(filtered_games)} jogos na temporada {season-1}")
             return filtered_games
         st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
         return []
@@ -179,7 +179,7 @@ def get_team_leagues(team_id, season):
         response = requests.get(url, headers=HEADERS, params=params)
         if response.status_code == 200:
             leagues = response.json().get("response", [])
-            st.write(f"Ligas encontradas para time {team_id}, temporada {season}: {json.dumps(leagues, indent=2)}")
+            # st.write(f"Ligas encontradas para time {team_id}, temporada {season}: {json.dumps(leagues, indent=2)}")
             return leagues
         st.error(f"Erro ao buscar ligas: {response.status_code} - {response.text}")
         return []
@@ -201,7 +201,6 @@ def calculate_averages(games, team_id, weights):
     weighted_values = {k: [] for k in stats.keys()}
     game_weights = {k: [] for k in stats.keys()}  # Pesos separados por estatística
 
-    st.write(f"Processando {len(games)} jogos para o time {team_id}")
     for game in games:
         game_stats = get_game_stats(game["fixture"]["id"])
         # Fallback: usar dados de /fixtures se /statistics estiver vazio
@@ -256,9 +255,10 @@ def calculate_averages(games, team_id, weights):
         mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
         if mapped_name in weights:
             weight = weights[mapped_name]
-            st.write(f"Peso encontrado para {league_name} (mapeado como {mapped_name}): {weight}")
+            # st.write(f"Peso encontrado para {league_name} (mapeado como {mapped_name}): {weight}")
         else:
-            st.write(f"Peso padrão {weight} usado para liga {league_name} (time {opponent_id})")
+            # st.write(f"Peso padrão {weight} usado para liga {league_name} (time {opponent_id})")
+            pass
 
         # Média simples
         for key in stats:
@@ -267,8 +267,8 @@ def calculate_averages(games, team_id, weights):
         # Valores ponderados
         for key in weighted_values:
             if "conceded" in key or "suffered" in key:
-                # Para estatísticas negativas, dividir pelo peso (menos peso contra adversários fortes)
-                weighted_values[key].append(team_data[key] / max(weight, 0.1))  # Evitar divisão por zero
+                # Para estatísticas negativas, dividir pelo peso
+                weighted_values[key].append(team_data[key] / max(weight, 0.1))
                 game_weights[key].append(1 / max(weight, 0.1))
             else:
                 # Para estatísticas positivas, multiplicar pelo peso
@@ -283,9 +283,9 @@ def calculate_averages(games, team_id, weights):
         total_weight = sum(game_weights[key]) if game_weights[key] else 1
         weighted_averages[key] = weighted_sum / total_weight if total_weight > 0 else 0
 
-    st.write(f"Médias simples calculadas: {simple_averages}")
-    st.write(f"Médias ponderadas calculadas: {weighted_averages}")
-    st.write(f"Pesos aplicados por estatística: {game_weights}")
+    # st.write(f"Médias simples calculadas: {simple_averages}")
+    # st.write(f"Médias ponderadas calculadas: {weighted_averages}")
+    # st.write(f"Pesos aplicados por estatística: {game_weights}")
     return simple_averages, weighted_averages
 
 # Função para prever estatísticas
@@ -492,7 +492,6 @@ def main():
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state["season_a"]
             season_b = st.session_state["season_b"]
-            st.write("Buscando jogos...")
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a:
@@ -527,7 +526,6 @@ def main():
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state["season_a"]
             season_b = st.session_state["season_b"]
-            st.write("Calculando médias...")
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a and games_b:
@@ -559,7 +557,6 @@ def main():
     # Aba 4: Estatísticas Previstas
     with tabs[3]:
         if "simple_a" in st.session_state:
-            st.write("Gerando previsões...")
             predicted_stats, confidence_intervals = predict_stats(
                 st.session_state["simple_a"], st.session_state["weighted_a"],
                 st.session_state["simple_b"], st.session_state["weighted_b"]
@@ -586,7 +583,6 @@ def main():
     # Aba 5: Placar Provável
     with tabs[4]:
         if "weighted_a" in st.session_state:
-            st.write("Calculando placar provável...")
             score_pred = predict_score(st.session_state["weighted_a"], st.session_state["weighted_b"])
             st.session_state["score_pred"] = score_pred
             if score_pred["score"] != "N/A":
@@ -604,7 +600,6 @@ def main():
     # Aba 6: Odds x Previsão
     with tabs[5]:
         if "predicted_stats" in st.session_state:
-            st.write("Comparando odds...")
             odds = get_odds(12345)
             value_bets = compare_odds(st.session_state["predicted_stats"], st.session_state["score_pred"], odds)
             st.session_state["value_bets"] = value_bets
@@ -620,7 +615,6 @@ def main():
     with tabs[6]:
         if "team_a" in st.session_state and "predicted_stats" in st.session_state and st.session_state["predicted_stats"]:
             if st.button("Exportar Resultados"):
-                st.write("Exportando resultados...")
                 filename = export_results(
                     st.session_state["team_a"], st.session_state["team_b"],
                     st.session_state["simple_a"], st.session_state["weighted_a"],
