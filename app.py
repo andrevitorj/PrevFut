@@ -28,12 +28,8 @@ if not API_KEY:
 def test_api_key():
     url = f"{API_BASE_URL}/status"
     try:
-        # st.write(f"Testando chave da API com endpoint: {url}")
         response = requests.get(url, headers=HEADERS)
-        # st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
-            # data = response.json()
-            # st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
             return True
         else:
             st.error(f"Erro ao testar chave: {response.status_code} - {response.text}")
@@ -85,14 +81,9 @@ def search_team(team_name):
     url = f"{API_BASE_URL}/teams"
     params = {"search": team_name}
     try:
-        # st.write(f"Buscando times com nome: {team_name}")
-        # st.write(f"URL: {url}?search={team_name}")
         response = requests.get(url, headers=HEADERS, params=params)
-        # st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
-            data = response.json()
-            # st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
-            return data.get("response", [])
+            return response.json().get("response", [])
         else:
             st.error(f"Erro na API: {response.status_code} - {response.text}")
             return []
@@ -100,7 +91,7 @@ def search_team(team_name):
         st.error(f"Erro ao buscar times: {str(e)}")
         return []
 
-# Função para buscar jogos
+# Função para buscar jogos passados
 def get_team_games(team_id, season, home=True, limit=20):
     if not API_KEY:
         st.error("Chave da API não configurada.")
@@ -113,14 +104,9 @@ def get_team_games(team_id, season, home=True, limit=20):
         "status": "FT"  # Apenas jogos finalizados
     }
     try:
-        # st.write(f"Buscando jogos para time ID {team_id}, temporada {season}, {'casa' if home else 'fora'}")
-        # st.write(f"URL completa: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
-        # st.write(f"Cabeçalho enviado: {{'x-apisports-key': '***{API_KEY[-4:]}'}}")
         response = requests.get(url, headers=HEADERS, params=params)
-        # st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
-            # st.write(f"Resposta completa da API: {json.dumps(data, indent=2)}")
             games = data.get("response", [])
             # Filtrar jogos como mandante ou visitante
             filtered_games = [
@@ -128,12 +114,10 @@ def get_team_games(team_id, season, home=True, limit=20):
                 if (home and game["teams"]["home"]["id"] == team_id) or
                    (not home and game["teams"]["away"]["id"] == team_id)
             ]
-            # st.write(f"Encontrados {len(filtered_games)} jogos após filtro {'mandante' if home else 'visitante'}")
             # Fallback para temporada anterior se não houver jogos
             if not filtered_games and season == 2025:
                 st.warning(f"Nenhum jogo finalizado encontrado para temporada {season}. Tentando temporada {season-1}...")
                 params["season"] = season - 1
-                # st.write(f"Nova URL: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
                 response = requests.get(url, headers=HEADERS, params=params)
                 if response.status_code == 200:
                     data = response.json()
@@ -143,13 +127,41 @@ def get_team_games(team_id, season, home=True, limit=20):
                         if (home and game["teams"]["home"]["id"] == team_id) or
                            (not home and game["teams"]["away"]["id"] == team_id)
                     ]
-                    # st.write(f"Encontrados {len(filtered_games)} jogos na temporada {season-1}")
             return filtered_games
         st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
         return []
     except Exception as e:
         st.error(f"Erro ao buscar jogos: {str(e)}")
         return []
+
+# Função para buscar o próximo jogo entre dois times
+def find_next_fixture(team_a_id, team_b_id, season):
+    if not API_KEY:
+        st.error("Chave da API não configurada.")
+        return None
+    url = f"{API_BASE_URL}/fixtures"
+    params = {
+        "team": team_a_id,
+        "season": season,
+        "next": 1  # Próximo jogo
+    }
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            games = data.get("response", [])
+            # Verificar se o próximo jogo é contra o Time B
+            for game in games:
+                if (game["teams"]["home"]["id"] == team_a_id and game["teams"]["away"]["id"] == team_b_id) or \
+                   (game["teams"]["home"]["id"] == team_b_id and game["teams"]["away"]["id"] == team_a_id):
+                    return game["fixture"]["id"]
+            st.warning("Nenhum jogo futuro encontrado entre os times selecionados na temporada especificada.")
+            return None
+        st.error(f"Erro ao buscar próximo jogo: {response.status_code} - {response.text}")
+        return None
+    except Exception as e:
+        st.error(f"Erro ao buscar próximo jogo: {str(e)}")
+        return None
 
 # Função para buscar estatísticas de um jogo
 def get_game_stats(fixture_id):
@@ -178,9 +190,7 @@ def get_team_leagues(team_id, season):
     try:
         response = requests.get(url, headers=HEADERS, params=params)
         if response.status_code == 200:
-            leagues = response.json().get("response", [])
-            # st.write(f"Ligas encontradas para time {team_id}, temporada {season}: {json.dumps(leagues, indent=2)}")
-            return leagues
+            return response.json().get("response", [])
         st.error(f"Erro ao buscar ligas: {response.status_code} - {response.text}")
         return []
     except Exception as e:
@@ -199,11 +209,10 @@ def calculate_averages(games, team_id, weights):
         "xg": [], "xga": [], "free_kicks": []
     }
     weighted_values = {k: [] for k in stats.keys()}
-    game_weights = {k: [] for k in stats.keys()}  # Pesos separados por estatística
+    game_weights = {k: [] for k in stats.keys()}
 
     for game in games:
         game_stats = get_game_stats(game["fixture"]["id"])
-        # Fallback: usar dados de /fixtures se /statistics estiver vazio
         team_data = {k: 0 for k in stats.keys()}
         is_home = game["teams"]["home"]["id"] == team_id
         team_data["goals_scored"] = game["goals"]["home" if is_home else "away"] or 0
@@ -211,7 +220,7 @@ def calculate_averages(games, team_id, weights):
 
         if game_stats:
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
-            opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
+            opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None  None)
             if not team_stats or not opponent_stats:
                 st.warning(f"Estatísticas incompletas para o jogo {game['fixture']['id']}")
             else:
@@ -247,45 +256,29 @@ def calculate_averages(games, team_id, weights):
         else:
             st.warning(f"Sem estatísticas para o jogo {game['fixture']['id']}. Usando apenas gols de /fixtures.")
 
-        # Determinar peso do jogo
         opponent_id = game["teams"]["away"]["id"] if is_home else game["teams"]["home"]["id"]
         leagues = get_team_leagues(opponent_id, game["league"]["season"])
-        weight = 0.50  # Peso padrão
+        weight = 0.50
         league_name = game["league"]["name"]
         mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
         if mapped_name in weights:
             weight = weights[mapped_name]
-            # st.write(f"Peso encontrado para {league_name} (mapeado como {mapped_name}): {weight}")
-        else:
-            # st.write(f"Peso padrão {weight} usado para liga {league_name} (time {opponent_id})")
-            pass
-
-        # Média simples
         for key in stats:
             stats[key].append(team_data[key])
-
-        # Valores ponderados
         for key in weighted_values:
             if "conceded" in key or "suffered" in key:
-                # Para estatísticas negativas, dividir pelo peso
                 weighted_values[key].append(team_data[key] / max(weight, 0.1))
                 game_weights[key].append(1 / max(weight, 0.1))
             else:
-                # Para estatísticas positivas, multiplicar pelo peso
                 weighted_values[key].append(team_data[key] * weight)
                 game_weights[key].append(weight)
 
-    # Calcular médias
     simple_averages = {k: np.mean(v) if v else 0 for k, v in stats.items()}
     weighted_averages = {}
     for key in weighted_values:
         weighted_sum = sum(weighted_values[key])
         total_weight = sum(game_weights[key]) if game_weights[key] else 1
         weighted_averages[key] = weighted_sum / total_weight if total_weight > 0 else 0
-
-    # st.write(f"Médias simples calculadas: {simple_averages}")
-    # st.write(f"Médias ponderadas calculadas: {weighted_averages}")
-    # st.write(f"Pesos aplicados por estatística: {game_weights}")
     return simple_averages, weighted_averages
 
 # Função para prever estatísticas
@@ -332,37 +325,37 @@ def predict_score(team_a_weighted, team_b_weighted):
         "ci": {"team_a": ci_a, "team_b": ci_b}
     }
 
-# Função para buscar odds (simulada)
+# Função para buscar odds reais
 def get_odds(fixture_id):
-    st.warning("Odds simuladas. Forneça um fixture_id real para dados reais.")
-    return [
-        {
-            "bookmaker": {"name": "Bet365"},
-            "bets": [
-                {
-                    "name": "Match Winner",
-                    "values": [
-                        {"value": "Home", "odd": "1.80"},
-                        {"value": "Draw", "odd": "3.50"},
-                        {"value": "Away", "odd": "4.00"}
-                    ]
-                },
-                {
-                    "name": "Both Teams To Score",
-                    "values": [
-                        {"value": "Yes", "odd": "1.90"},
-                        {"value": "No", "odd": "1.85"}
-                    ]
-                }
-            ]
-        }
-    ]
+    if not API_KEY:
+        st.error("Chave da API não configurada.")
+        return []
+    if not fixture_id:
+        st.warning("Não foi possível encontrar um jogo futuro entre os times selecionados para buscar odds.")
+        return []
+    url = f"{API_BASE_URL}/odds"
+    params = {"fixture": fixture_id}
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            odds = data.get("response", [])
+            if not odds:
+                st.warning("Nenhuma odd disponível para o jogo selecionado.")
+            return odds
+        st.error(f"Erro ao buscar odds: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Erro ao buscar odds: {str(e)}")
+        return []
 
 # Função para comparar odds e previsões
 def compare_odds(predicted_stats, score_pred, odds):
     if not predicted_stats or score_pred["score"] == "N/A":
         st.warning("Não há previsões válidas para comparar com odds.")
         return []
+    if not odds:
+        return []  # Já tratado na função get_odds
     value_bets = []
     for market in odds:
         market_name = market["bookmaker"]["name"]
@@ -497,7 +490,10 @@ def main():
             if games_a:
                 st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
                 for game in games_a:
-                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {game['fixture']['date']}"):
+                    # Formatar a data para DD/MM/YYYY HH:MM
+                    game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
+                    formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
+                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {formatted_date}"):
                         stats = get_game_stats(game["fixture"]["id"])
                         if stats:
                             st.json(stats)
@@ -508,7 +504,10 @@ def main():
             if games_b:
                 st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
                 for game in games_b:
-                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {game['fixture']['date']}"):
+                    # Formatar a data para DD/MM/YYYY HH:MM
+                    game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
+                    formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
+                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {formatted_date}"):
                         stats = get_game_stats(game["fixture"]["id"])
                         if stats:
                             st.json(stats)
@@ -600,14 +599,19 @@ def main():
     # Aba 6: Odds x Previsão
     with tabs[5]:
         if "predicted_stats" in st.session_state:
-            odds = get_odds(12345)
+            # Buscar o próximo jogo entre os times
+            team_a_id = st.session_state["team_a"]["team"]["id"]
+            team_b_id = st.session_state["team_b"]["team"]["id"]
+            season = st.session_state["season_a"]
+            fixture_id = find_next_fixture(team_a_id, team_b_id, season)
+            odds = get_odds(fixture_id)
             value_bets = compare_odds(st.session_state["predicted_stats"], st.session_state["score_pred"], odds)
             st.session_state["value_bets"] = value_bets
             if value_bets:
                 df_odds = pd.DataFrame(value_bets)
                 st.dataframe(df_odds)
             else:
-                st.warning("Nenhuma aposta de valor encontrada ou previsões insuficientes.")
+                st.warning("Nenhuma aposta de valor encontrada ou odds indisponíveis para o jogo.")
         else:
             st.info("Gere previsões na aba 'Estatísticas Previstas' para comparar odds.")
 
