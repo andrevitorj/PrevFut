@@ -19,6 +19,29 @@ HEADERS = {
     "x-apisports-key": API_KEY
 }
 
+# Verificar chave da API
+if not API_KEY:
+    st.error("Chave da API não encontrada. Configure 'API_FOOTBALL_KEY' nos secrets do Streamlit.")
+    st.stop()
+
+# Função para testar a chave da API
+def test_api_key():
+    url = f"{API_BASE_URL}/status"
+    try:
+        st.write(f"Testando chave da API com endpoint: {url}")
+        response = requests.get(url, headers=HEADERS)
+        st.write(f"Status da resposta: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            st.write(f"Resposta da API: {json.dumps(data, indent=2)}")
+            return True
+        else:
+            st.error(f"Erro ao testar chave: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Erro ao testar chave: {str(e)}")
+        return False
+
 # Carregar pesos das competições
 def load_weights():
     try:
@@ -44,6 +67,9 @@ def load_weights():
 
 # Função para buscar times
 def search_team(team_name):
+    if not API_KEY:
+        st.error("Chave da API não configurada.")
+        return []
     url = f"{API_BASE_URL}/teams"
     params = {"search": team_name}
     try:
@@ -64,6 +90,9 @@ def search_team(team_name):
 
 # Função para buscar jogos
 def get_team_games(team_id, season, home=True, limit=10):
+    if not API_KEY:
+        st.error("Chave da API não configurada.")
+        return []
     url = f"{API_BASE_URL}/fixtures"
     params = {
         "team": team_id,
@@ -77,6 +106,7 @@ def get_team_games(team_id, season, home=True, limit=10):
     try:
         st.write(f"Buscando jogos para time ID {team_id}, temporada {season}, {'casa' if home else 'fora'}")
         st.write(f"URL completa: {url}?{'&'.join(f'{k}={v}' for k, v in params.items())}")
+        st.write(f"Cabeçalho enviado: {{'x-apisports-key': '***{API_KEY[-4:]}'}}")
         response = requests.get(url, headers=HEADERS, params=params)
         st.write(f"Status da resposta: {response.status_code}")
         if response.status_code == 200:
@@ -93,6 +123,9 @@ def get_team_games(team_id, season, home=True, limit=10):
 
 # Função para buscar estatísticas de um jogo
 def get_game_stats(fixture_id):
+    if not API_KEY:
+        st.error("Chave da API não configurada.")
+        return []
     url = f"{API_BASE_URL}/fixtures/statistics"
     params = {"fixture": fixture_id}
     try:
@@ -107,6 +140,9 @@ def get_game_stats(fixture_id):
 
 # Função para buscar competições de um time
 def get_team_leagues(team_id, season):
+    if not API_KEY:
+        st.error("Chave da API não configurada.")
+        return []
     url = f"{API_BASE_URL}/leagues"
     params = {"team": team_id, "season": season}
     try:
@@ -208,16 +244,12 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
     predicted_stats = {}
     confidence_intervals = {}
     for stat in team_a_weighted.keys():
-        # Previsão para Time A
         a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) * 1.2 / 2
-        # Previsão para Time B
         b_pred = (team_b_weighted[stat] + team_a_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) / 1.2 / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
-
-        # Intervalo de confiança (85%)
         a_std = np.std([team_a_weighted[stat], team_b_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]])
         b_std = np.std([team_b_weighted[stat], team_a_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]])
-        z = norm.ppf(0.925)  # 85% CI
+        z = norm.ppf(0.925)
         confidence_intervals[stat] = {
             "team_a": (a_pred - z * a_std / np.sqrt(2), a_pred + z * a_std / np.sqrt(2)),
             "team_b": (b_pred - z * b_std / np.sqrt(2), b_pred + z * b_std / np.sqrt(2))
@@ -228,21 +260,17 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
 def predict_score(team_a_weighted, team_b_weighted):
     lambda_a = (team_a_weighted["goals_scored"] + team_b_weighted["goals_conceded"]) * 1.2 / 2
     lambda_b = (team_b_weighted["goals_scored"] + team_a_weighted["goals_conceded"]) / 1.2 / 2
-
     max_goals = 10
     prob_matrix = np.zeros((max_goals, max_goals))
     for i in range(max_goals):
         for j in range(max_goals):
             prob_matrix[i, j] = poisson.pmf(i, lambda_a) * poisson.pmf(j, lambda_b)
-
     most_likely_score = np.unravel_index(np.argmax(prob_matrix), prob_matrix.shape)
     win_prob = np.sum(prob_matrix[np.where(np.arange(max_goals)[:, None] > np.arange(max_goals)[None, :])])
     draw_prob = np.sum(np.diag(prob_matrix))
     loss_prob = np.sum(prob_matrix[np.where(np.arange(max_goals)[:, None] < np.arange(max_goals)[None, :])])
-
     ci_a = (poisson.ppf(0.075, lambda_a), poisson.ppf(0.925, lambda_a))
     ci_b = (poisson.ppf(0.075, lambda_b), poisson.ppf(0.925, lambda_b))
-
     return {
         "score": f"{most_likely_score[0]} x {most_likely_score[1]}",
         "probs": {"win": win_prob, "draw": draw_prob, "loss": loss_prob},
@@ -310,16 +338,12 @@ def compare_odds(predicted_stats, score_pred, odds):
 # Função para exportar resultados
 def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, predicted_stats, confidence_intervals, score_pred, value_bets):
     wb = openpyxl.Workbook()
-    
-    # Aba de médias
     ws = wb.active
     ws.title = "Médias"
     ws.append(["Time", "Estatística", "Média Simples", "Média Ponderada"])
     for stat in simple_a.keys():
         ws.append([team_a["team"]["name"], stat, simple_a[stat], weighted_a[stat]])
         ws.append([team_b["team"]["name"], stat, simple_b[stat], weighted_b[stat]])
-
-    # Aba de previsões
     ws = wb.create_sheet("Previsões")
     ws.append(["Estatística", f"{team_a['team']['name']} (Prev)", f"{team_a['team']['name']} (IC 85%)", f"{team_b['team']['name']} (Prev)", f"{team_b['team']['name']} (IC 85%)"])
     for stat in predicted_stats.keys():
@@ -330,8 +354,6 @@ def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, p
             predicted_stats[stat]["team_b"],
             f"[{confidence_intervals[stat]['team_b'][0]:.2f}, {confidence_intervals[stat]['team_b'][1]:.2f}]"
         ])
-
-    # Aba de placar
     ws = wb.create_sheet("Placar Provável")
     ws.append(["Placar", score_pred["score"]])
     ws.append(["Prob. Vitória", score_pred["probs"]["win"]])
@@ -339,25 +361,26 @@ def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, p
     ws.append(["Prob. Derrota", score_pred["probs"]["loss"]])
     ws.append([f"IC Gols {team_a['team']['name']}", f"[{score_pred['ci']['team_a'][0]:.2f}, {score_pred['ci']['team_a'][1]:.2f}]"])
     ws.append([f"IC Gols {team_b['team']['name']}", f"[{score_pred['ci']['team_b'][0]:.2f}, {score_pred['ci']['team_b'][1]:.2f}]"])
-
-    # Aba de odds
     ws = wb.create_sheet("Odds e Valor")
     ws.append(["Mercado", "Aposta", "Valor", "Odd", "Prob. Implícita", "Prob. Prevista"])
     for bet in value_bets:
         ws.append([bet["market"], bet["bet"], bet["value"], bet["odd"], bet["implied_prob"], bet["predicted_prob"]])
-
     filename = f"previsao_{team_a['team']['name']}_vs_{team_b['team']['name']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     wb.save(filename)
     return filename
 
 # Função principal
 def main():
-    if not API_KEY:
-        st.error("Chave da API não encontrada. Configure 'API_FOOTBALL_KEY' nos secrets do Streamlit.")
-        return
-
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
+
+    # Testar chave da API
+    st.subheader("Verificação da Chave da API")
+    if st.button("Testar Chave"):
+        if test_api_key():
+            st.success("Chave da API está funcionando!")
+        else:
+            st.error("Chave da API inválida ou houve um erro.")
 
     weights = load_weights()
     tabs = st.tabs([
@@ -379,7 +402,6 @@ def main():
         with col2:
             team_b_name = st.text_input("Time B (Visitante)", placeholder="Digite o nome do time")
             season_b = st.selectbox("Temporada Time B", list(range(2020, 2026)), index=3)
-
         if st.button("Buscar Times"):
             if len(team_a_name) < 3 or len(team_b_name) < 3:
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
@@ -389,10 +411,9 @@ def main():
                 st.session_state["teams_a"] = teams_a
                 st.session_state["teams_b"] = teams_b
                 if not teams_a:
-                    st.error("Nenhum time encontrado para o Time A. Verifique a grafia ou tente outro nome.")
+                    st.error("Nenhum time encontrado para o Time A.")
                 if not teams_b:
-                    st.error("Nenhum time encontrado para o Time B. Verifique a grafia ou tente outro nome.")
-
+                    st.error("Nenhum time encontrado para o Time B.")
         if "teams_a" in st.session_state and "teams_b" in st.session_state and st.session_state["teams_a"] and st.session_state["teams_b"]:
             st.subheader("Selecione os Times")
             team_a_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_a"]]
@@ -458,7 +479,6 @@ def main():
                 st.session_state["weighted_a"] = weighted_a
                 st.session_state["simple_b"] = simple_b
                 st.session_state["weighted_b"] = weighted_b
-
                 df_a = pd.DataFrame({
                     "Estatística": simple_a.keys(),
                     "Média Simples": simple_a.values(),
@@ -521,7 +541,7 @@ def main():
     with tabs[5]:
         if "predicted_stats" in st.session_state:
             st.write("Comparando odds...")
-            odds = get_odds(12345)  # Simulado
+            odds = get_odds(12345)
             value_bets = compare_odds(st.session_state["predicted_stats"], st.session_state["score_pred"], odds)
             st.session_state["value_bets"] = value_bets
             if value_bets:
