@@ -222,7 +222,7 @@ def calculate_averages(games, team_id, weights):
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
             opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
             if not team_stats or not opponent_stats:
-                st.warning(f"Estatísticas incompletas para o jogo {game['fixture']['id']}")
+                st.warning(f"Sem estatísticas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
             else:
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
@@ -254,7 +254,7 @@ def calculate_averages(games, team_id, weights):
                     elif stat_type == "free kicks":
                         team_data["free_kicks"] = value
         else:
-            st.warning(f"Sem estatísticas para o jogo {game['fixture']['id']}. Usando apenas gols de /fixtures.")
+            st.warning(f"Sem estatísticas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
 
         opponent_id = game["teams"]["away"]["id"] if is_home else game["teams"]["home"]["id"]
         leagues = get_team_leagues(opponent_id, game["league"]["season"])
@@ -358,7 +358,7 @@ def compare_odds(predicted_stats, score_pred, odds):
         return []  # Já tratado na função get_odds
     value_bets = []
     for market in odds:
-        market_name = market["bookmaker"]["name"]
+        market_name = market.get("name", "Desconhecido")  # Correção: usar "name" diretamente
         for bet in market["bets"]:
             bet_name = bet["name"]
             for value in bet["values"]:
@@ -496,7 +496,14 @@ def main():
                     with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {formatted_date}"):
                         stats = get_game_stats(game["fixture"]["id"])
                         if stats:
-                            st.json(stats)
+                            # Converter estatísticas em tabela
+                            data = []
+                            for stat in stats:
+                                if stat["team"]["id"] == team_a_id:
+                                    for s in stat["statistics"]:
+                                        data.append([s["type"], s["value"] or 0])
+                            df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
+                            st.dataframe(df_stats)
                         else:
                             st.warning("Nenhuma estatística disponível para este jogo, mas gols podem estar em /fixtures.")
             else:
@@ -510,7 +517,14 @@ def main():
                     with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {formatted_date}"):
                         stats = get_game_stats(game["fixture"]["id"])
                         if stats:
-                            st.json(stats)
+                            # Converter estatísticas em tabela
+                            data = []
+                            for stat in stats:
+                                if stat["team"]["id"] == team_b_id:
+                                    for s in stat["statistics"]:
+                                        data.append([s["type"], s["value"] or 0])
+                            df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
+                            st.dataframe(df_stats)
                         else:
                             st.warning("Nenhuma estatística disponível para este jogo, mas gols podem estar em /fixtures.")
             else:
