@@ -355,31 +355,46 @@ def compare_odds(predicted_stats, score_pred, odds):
         st.warning("Não há previsões válidas para comparar com odds.")
         return []
     if not odds:
+        st.warning("Nenhuma odd encontrada para o jogo selecionado.")
         return []  # Já tratado na função get_odds
+
     value_bets = []
     for market in odds:
-        market_name = market.get("name", "Desconhecido")  # Correção: usar "name" diretamente
-        for bet in market["bets"]:
-            bet_name = bet["name"]
-            for value in bet["values"]:
-                odd = float(value["odd"])
+        market_name = market.get("name", "Desconhecido")
+        # Verificar se a chave "bets" existe e é uma lista iterável
+        bets = market.get("bets", [])
+        if not isinstance(bets, list):
+            st.warning(f"Estrutura de odds inesperada para o mercado '{market_name}': 'bets' não é uma lista. Pulando este mercado.")
+            continue
+
+        for bet in bets:
+            bet_name = bet.get("name", "Desconhecido")
+            values = bet.get("values", [])
+            if not isinstance(values, list):
+                st.warning(f"Estrutura de odds inesperada para a aposta '{bet_name}' no mercado '{market_name}': 'values' não é uma lista. Pulando esta aposta.")
+                continue
+
+            for value in values:
+                odd = float(value.get("odd", 0))
+                if odd <= 0:
+                    continue  # Pular odds inválidas
                 implied_prob = 1 / odd
                 predicted_prob = 0
                 if bet_name == "Match Winner":
-                    if value["value"] == "Home":
+                    if value.get("value") == "Home":
                         predicted_prob = score_pred["probs"]["win"]
-                    elif value["value"] == "Draw":
+                    elif value.get("value") == "Draw":
                         predicted_prob = score_pred["probs"]["draw"]
-                    elif value["value"] == "Away":
+                    elif value.get("value") == "Away":
                         predicted_prob = score_pred["probs"]["loss"]
                 elif bet_name == "Both Teams To Score":
-                    if value["value"] == "Yes":
+                    if value.get("value") == "Yes":
                         predicted_prob = poisson.pmf(1, predicted_stats["goals_scored"]["team_a"]) * poisson.pmf(1, predicted_stats["goals_scored"]["team_b"])
                 if predicted_prob > implied_prob:
                     value_bets.append({
                         "market": market_name,
                         "bet": bet_name,
-                        "value": value["value"],
+                        "value": value.get("value", "Desconhecido"),
                         "odd": odd,
                         "implied_prob": implied_prob,
                         "predicted_prob": predicted_prob
@@ -501,8 +516,16 @@ def main():
                             for stat in stats:
                                 if stat["team"]["id"] == team_a_id:
                                     for s in stat["statistics"]:
-                                        data.append([s["type"], s["value"] or 0])
+                                        value = s["value"]
+                                        # Tratar valores de "Ball Possession" (ex.: "75%")
+                                        if s["type"].lower() == "ball possession" and isinstance(value, str) and value.endswith("%"):
+                                            value = float(value.replace("%", ""))
+                                        # Garantir que o valor seja numérico ou 0 se for None
+                                        value = float(value) if value is not None else 0.0
+                                        data.append([s["type"], value])
                             df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
+                            # Garantir que a coluna "Valor" seja do tipo float
+                            df_stats["Valor"] = df_stats["Valor"].astype(float)
                             st.dataframe(df_stats)
                         else:
                             st.warning("Nenhuma estatística disponível para este jogo, mas gols podem estar em /fixtures.")
@@ -522,8 +545,16 @@ def main():
                             for stat in stats:
                                 if stat["team"]["id"] == team_b_id:
                                     for s in stat["statistics"]:
-                                        data.append([s["type"], s["value"] or 0])
+                                        value = s["value"]
+                                        # Tratar valores de "Ball Possession" (ex.: "75%")
+                                        if s["type"].lower() == "ball possession" and isinstance(value, str) and value.endswith("%"):
+                                            value = float(value.replace("%", ""))
+                                        # Garantir que o valor seja numérico ou 0 se for None
+                                        value = float(value) if value is not None else 0.0
+                                        data.append([s["type"], value])
                             df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
+                            # Garantir que a coluna "Valor" seja do tipo float
+                            df_stats["Valor"] = df_stats["Valor"].astype(float)
                             st.dataframe(df_stats)
                         else:
                             st.warning("Nenhuma estatística disponível para este jogo, mas gols podem estar em /fixtures.")
