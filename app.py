@@ -353,19 +353,19 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
     predicted_stats = {}
     confidence_intervals = {}
     for stat in team_a_weighted.keys():
-        # Usar tanto estatísticas feitas quanto sofridas para prever
-        if "scored" in stat or "committed" in stat:
-            a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) * 1.2 / 2
-            b_pred = (team_b_weighted[stat] + team_a_weighted[stat.replace("scored", "conceded").replace("committed", "suffered")]) / 1.2 / 2
-        elif "conceded" in stat or "suffered" in stat:
-            a_pred = (team_a_weighted[stat] + team_b_weighted[stat.replace("conceded", "scored").replace("suffered", "committed")]) / 1.2 / 2
-            b_pred = (team_b_weighted[stat] + team_a_weighted[stat.replace("conceded", "scored").replace("suffered", "committed")]) * 1.2 / 2
-        else:
-            a_pred = (team_a_weighted[stat] + team_b_simple[stat]) / 2
-            b_pred = (team_b_weighted[stat] + team_a_simple[stat]) / 2
+        # Definir a estatística oposta (feita para sofrida ou vice-versa)
+        opposite_stat = stat.replace("conceded", "shots").replace("suffered", "committed") if "conceded" in stat or "suffered" in stat else stat.replace("scored", "conceded").replace("committed", "suffered")
+        # Usar a estatística oposta se existir, caso contrário, usar a mesma
+        if opposite_stat not in team_b_weighted:
+            opposite_stat = stat
+        a_pred = (team_a_weighted[stat] + team_b_weighted.get(opposite_stat, team_b_weighted[stat])) * 1.2 / 2 if "conceded" in stat or "suffered" in stat else (team_a_weighted[stat] + team_b_simple.get(stat, team_b_weighted[stat])) / 2
+        b_pred = (team_b_weighted[stat] + team_a_weighted.get(opposite_stat, team_a_weighted[stat])) / 1.2 / 2 if "conceded" in stat or "suffered" in stat else (team_b_weighted[stat] + team_a_simple.get(stat, team_a_weighted[stat])) / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
-        a_std = np.std([team_a_weighted[stat], team_b_weighted[stat.replace("scored", "conceded").replace("committed", "suffered") if ("scored" in stat or "committed" in stat) else stat]])
-        b_std = np.std([team_b_weighted[stat], team_a_weighted[stat.replace("scored", "conceded").replace("committed", "suffered") if ("scored" in stat or "committed" in stat) else stat]])
+        # Calcular desvio padrão para intervalos de confiança
+        a_values = [team_a_weighted[stat], team_b_weighted.get(opposite_stat, team_b_weighted[stat])]
+        b_values = [team_b_weighted[stat], team_a_weighted.get(opposite_stat, team_a_weighted[stat])]
+        a_std = np.std(a_values) if len(a_values) > 1 and None not in a_values else 0
+        b_std = np.std(b_values) if len(b_values) > 1 and None not in b_values else 0
         z = norm.ppf(0.925)
         confidence_intervals[stat] = {
             "team_a": (a_pred - z * a_std / np.sqrt(2), a_pred + z * a_std / np.sqrt(2)),
