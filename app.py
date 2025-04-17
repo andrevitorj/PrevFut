@@ -73,7 +73,6 @@ def load_weights():
 # Mapeamento de IDs de ligas para nomes usados nos pesos
 LEAGUE_MAPPING = {
     13: "CONMEBOL Libertadores",
-    11: "CONMEBOL Sudamericana",
     2: "UEFA Champions League",
     848: "UEFA Europa Conference League",
     3: "UEFA Europa League",
@@ -613,7 +612,7 @@ def main():
                     league_id = game["league"]["id"]
                     league_name = game["league"]["name"]
                     mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
-                    weight = weights.get(mapped_name, hereditary, 0.5)
+                    weight = weights.get(mapped_name, 0.5)
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
