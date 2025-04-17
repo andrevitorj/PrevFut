@@ -226,7 +226,19 @@ def calculate_averages(games, team_id, weights):
             else:
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
-                    value = stat["value"] or 0
+                    value = stat["value"]
+                    if value is None:
+                        value = 0
+                    elif stat_type == "ball possession" and isinstance(value, str):
+                        # Remover '%' e converter para float, lidando com variações
+                        value = value.replace("%", "").strip()
+                        value = float(value) if value else 0.0
+                    else:
+                        # Tentar converter outros valores para float, com fallback para 0.0
+                        try:
+                            value = float(value) if value else 0.0
+                        except (ValueError, TypeError):
+                            value = 0.0
                     if stat_type == "total shots":
                         team_data["shots"] = value
                     elif stat_type == "shots on goal":
@@ -234,7 +246,7 @@ def calculate_averages(games, team_id, weights):
                     elif stat_type == "corner kicks":
                         team_data["corners"] = value
                     elif stat_type == "ball possession":
-                        team_data["possession"] = float(value.replace("%", "")) if value else 0
+                        team_data["possession"] = value
                     elif stat_type == "offsides":
                         team_data["offsides"] = value
                     elif stat_type == "fouls":
@@ -246,11 +258,11 @@ def calculate_averages(games, team_id, weights):
                     elif stat_type == "passes accurate":
                         team_data["passes_accurate"] = value
                     elif stat_type == "passes":
-                        team_data["passes_missed"] = (stat["value"] or 0) - (team_data["passes_accurate"] or 0)
+                        team_data["passes_missed"] = (value or 0) - (team_data["passes_accurate"] or 0)
                     elif stat_type == "expected goals":
-                        team_data["xg"] = float(value) if value else 0
+                        team_data["xg"] = value
                     elif stat_type == "expected goals against":
-                        team_data["xga"] = float(value) if value else 0
+                        team_data["xga"] = value
                     elif stat_type == "free kicks":
                         team_data["free_kicks"] = value
         else:
@@ -517,11 +529,16 @@ def main():
                                 if stat["team"]["id"] == team_a_id:
                                     for s in stat["statistics"]:
                                         value = s["value"]
-                                        # Tratar valores de "Ball Possession" (ex.: "75%")
-                                        if s["type"].lower() == "ball possession" and isinstance(value, str) and value.endswith("%"):
-                                            value = float(value.replace("%", ""))
-                                        # Garantir que o valor seja numérico ou 0 se for None
-                                        value = float(value) if value is not None else 0.0
+                                        # Tratar valores de "Ball Possession" (ex.: "86%")
+                                        if s["type"].lower() == "ball possession" and isinstance(value, str):
+                                            value = value.replace("%", "").strip()
+                                            value = float(value) if value else 0.0
+                                        else:
+                                            # Tentar converter outros valores para float, com fallback para 0.0
+                                            try:
+                                                value = float(value) if value is not None else 0.0
+                                            except (ValueError, TypeError):
+                                                value = 0.0
                                         data.append([s["type"], value])
                             df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
                             # Garantir que a coluna "Valor" seja do tipo float
@@ -546,11 +563,16 @@ def main():
                                 if stat["team"]["id"] == team_b_id:
                                     for s in stat["statistics"]:
                                         value = s["value"]
-                                        # Tratar valores de "Ball Possession" (ex.: "75%")
-                                        if s["type"].lower() == "ball possession" and isinstance(value, str) and value.endswith("%"):
-                                            value = float(value.replace("%", ""))
-                                        # Garantir que o valor seja numérico ou 0 se for None
-                                        value = float(value) if value is not None else 0.0
+                                        # Tratar valores de "Ball Possession" (ex.: "86%")
+                                        if s["type"].lower() == "ball possession" and isinstance(value, str):
+                                            value = value.replace("%", "").strip()
+                                            value = float(value) if value else 0.0
+                                        else:
+                                            # Tentar converter outros valores para float, com fallback para 0.0
+                                            try:
+                                                value = float(value) if value is not None else 0.0
+                                            except (ValueError, TypeError):
+                                                value = 0.0
                                         data.append([s["type"], value])
                             df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
                             # Garantir que a coluna "Valor" seja do tipo float
