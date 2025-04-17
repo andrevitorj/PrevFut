@@ -224,7 +224,7 @@ def calculate_averages(games, team_id, weights):
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
             opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
             if not team_stats or not opponent_stats:
-                st.warning(f"Sem estatísticas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
+                st.warning(f"Sem estatísticas completas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
             else:
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
@@ -261,8 +261,6 @@ def calculate_averages(games, team_id, weights):
                         team_data["passes_missed"] = (value or 0) - (team_data["passes_accurate"] or 0)
                     elif stat_type == "expected goals":
                         team_data["xg"] = value
-                    elif stat_type == "expected goals against":
-                        team_data["xga"] = value
                     elif stat_type == "free kicks":
                         team_data["free_kicks"] = value
 
@@ -280,8 +278,32 @@ def calculate_averages(games, team_id, weights):
                             value = float(value) if value else 0.0
                         except (ValueError, TypeError):
                             value = 0.0
-                    if stat_type == "fouls":
+                    if stat_type == "total shots":
+                        team_data["shots_conceded"] = value
+                    elif stat_type == "shots on goal":
+                        team_data["shots_on_target_conceded"] = value
+                    elif stat_type == "corner kicks":
+                        team_data["corners_conceded"] = value
+                    elif stat_type == "ball possession":
+                        team_data["possession_conceded"] = value
+                    elif stat_type == "offsides":
+                        team_data["offsides_conceded"] = value
+                    elif stat_type == "fouls":
                         team_data["fouls_suffered"] = value
+                    elif stat_type == "yellow cards":
+                        team_data["yellow_cards_conceded"] = value
+                    elif stat_type == "red cards":
+                        team_data["red_cards_conceded"] = value
+                    elif stat_type == "passes accurate":
+                        team_data["passes_accurate_conceded"] = value
+                    elif stat_type == "passes":
+                        team_data["passes_missed_conceded"] = (value or 0) - (team_data["passes_accurate_conceded"] or 0)
+                    elif stat_type == "expected goals":
+                        team_data["xga"] = value
+                    elif stat_type == "expected goals against":
+                        team_data["xga"] = value
+                    elif stat_type == "free kicks":
+                        team_data["free_kicks_conceded"] = value
         else:
             st.warning(f"Sem estatísticas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
 
@@ -294,6 +316,8 @@ def calculate_averages(games, team_id, weights):
             weight = weights[mapped_name]
         for key in stats:
             stats[key].append(team_data[key])
+            if key + "_conceded" in team_data and team_data[key + "_conceded"] is not None:
+                stats[key + "_conceded"] = stats.get(key + "_conceded", []) + [team_data[key + "_conceded"]]
         for key in weighted_values:
             if "conceded" in key or "suffered" in key:
                 weighted_values[key].append(team_data[key] / max(weight, 0.1))
@@ -396,7 +420,7 @@ def compare_odds(predicted_stats, score_pred, odds):
         st.warning("Não há previsões válidas para comparar com odds.")
         return []
     if not odds:
-        st.warning("Nenhuma odd encontrada para o jogo selecionado.")
+        st.warning("Nenhuma odd disponível para o jogo selecionado.")
         return []
 
     comparison_data = []
@@ -410,17 +434,13 @@ def compare_odds(predicted_stats, score_pred, odds):
     for market in odds:
         market_name = market.get("name", "Desconhecido")
         bets = market.get("bets", [])
-        if not isinstance(bets, list):
-            st.warning(f"Estrutura de odds inesperada para o mercado '{market_name}': 'bets' não é uma lista. Pulando este mercado.")
+        if not bets:
             continue
-
         for bet in bets:
             bet_name = bet.get("name", "Desconhecido")
             values = bet.get("values", [])
-            if not isinstance(values, list):
-                st.warning(f"Estrutura de odds inesperada para a aposta '{bet_name}' no mercado '{market_name}': 'values' não é uma lista. Pulando esta aposta.")
+            if not values:
                 continue
-
             # Processar apenas os mercados principais
             if bet_name in ["Match Winner", "Both Teams To Score", "Goals Over/Under"]:
                 for value in values:
@@ -738,7 +758,7 @@ def main():
                 df_odds["odd"] = df_odds["odd"].round(1)
                 st.dataframe(df_odds)
             else:
-                st.warning("Nenhuma odd disponível para os mercados principais ou falta de dados para comparação.")
+                st.warning("Nenhuma odd disponível para os mercados principais ou os dados retornados não atendem aos critérios de comparação.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' e complete as previsões nas abas anteriores para comparar odds.")
 
