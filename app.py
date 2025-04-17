@@ -8,6 +8,11 @@ import openpyxl
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import logging
+
+# Configurar logging para depuração (não será exibido na interface)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -38,42 +43,51 @@ def test_api_key():
         st.error(f"Erro ao testar chave: {str(e)}")
         return False
 
-# Carregar pesos das competições
+# Carregar pesos das competições com base nos IDs
 def load_weights():
     try:
         with open("pesos.json", "r") as f:
             return json.load(f)
     except FileNotFoundError:
         return {
-            "Champions League": 0.95,
-            "Europa League": 0.85,
-            "Libertadores": 0.80,
-            "Sul-Americana": 0.72,
-            "Premier League": 0.90,
-            "La Liga": 0.87,
-            "Brasileirão A": 0.78,
-            "Brasileirão B": 0.65,
-            "Copa do Brasil": 0.65,
-            "Estaduais Fortes": 0.58,
-            "Estaduais Fracos": 0.55,
-            "MLS": 0.70,
-            "Liga MX": 0.72,
-            "Saudi Pro League": 0.74
+            "CONMEBOL Libertadores": 0.75,  # ID 13
+            "UEFA Champions League": 1.0,   # ID 2
+            "UEFA Europa Conference League": 0.65,  # ID 848
+            "UEFA Europa League": 0.85,     # ID 3
+            "Serie A (Brazil)": 0.7,        # ID 71
+            "Serie B (Brazil)": 0.6,        # ID 72
+            "Serie C (Brazil)": 0.5,        # ID 75
+            "Liga Profesional Argentina": 0.65,  # ID 128
+            "Copa do Brasil": 0.65,         # ID 73
+            "Premier League": 0.85,         # ID 39
+            "La Liga": 0.8,                 # ID 140
+            "Bundesliga": 0.8,              # ID 78
+            "Serie A (Italy)": 0.8,         # ID 135
+            "Ligue 1": 0.75,                # ID 61
+            "Primeira Liga": 0.7,           # ID 94
+            "FIFA Club World Cup": 0.8,     # ID 15
+            "Outras ligas não mapeadas": 0.5
         }
 
-# Mapeamento de nomes de ligas da API para pesos.json
+# Mapeamento de nomes de ligas da API para pesos.json com base nos IDs
 LEAGUE_MAPPING = {
-    "Serie B": "Brasileirão B",
-    "Paranaense - 1": "Estaduais Fracos",
-    "Campeonato Paranaense": "Estaduais Fracos",
-    "Brasileiro Serie A": "Brasileirão A",
-    "Copa Libertadores": "Libertadores",
-    "Copa Sudamericana": "Sul-Americana",
-    "Serie B Brasil": "Brasileirão B",
-    "Paranaense 1ª Divisão": "Estaduais Fracos",
-    "UEFA Champions League": "Champions League",
-    "UEFA Europa League": "Europa League",
-    "Mineiro - 1": "Estaduais Fortes"
+    # Mapeamento por ID para evitar ambiguidades nos nomes
+    13: "CONMEBOL Libertadores",
+    2: "UEFA Champions League",
+    848: "UEFA Europa Conference League",
+    3: "UEFA Europa League",
+    71: "Serie A (Brazil)",
+    72: "Serie B (Brazil)",
+    75: "Serie C (Brazil)",
+    128: "Liga Profesional Argentina",
+    73: "Copa do Brasil",
+    39: "Premier League",
+    140: "La Liga",
+    78: "Bundesliga",
+    135: "Serie A (Italy)",
+    61: "Ligue 1",
+    94: "Primeira Liga",
+    15: "FIFA Club World Cup"
 }
 
 # Função para buscar times
@@ -146,18 +160,22 @@ def find_next_fixture(team_a_id, team_b_id, season):
     params = {
         "team": team_a_id,
         "season": season,
-        "next": 1  # Próximo jogo
+        "next": 20  # Aumentar para buscar mais jogos futuros
     }
     try:
         response = requests.get(url, headers=HEADERS, params=params)
+        logger.debug(f"Resposta da API para buscar fixture: {response.status_code} - {response.text}")
         if response.status_code == 200:
             data = response.json()
             games = data.get("response", [])
-            # Verificar se o próximo jogo é contra o Time B
+            # Verificar se há um jogo futuro entre team_a_id e team_b_id
             for game in games:
                 if (game["teams"]["home"]["id"] == team_a_id and game["teams"]["away"]["id"] == team_b_id) or \
                    (game["teams"]["home"]["id"] == team_b_id and game["teams"]["away"]["id"] == team_a_id):
-                    return game["fixture"]["id"]
+                    fixture_id = game["fixture"]["id"]
+                    logger.debug(f"Fixture encontrado: {fixture_id} para {team_a_id} vs {team_b_id}")
+                    return fixture_id
+            logger.debug(f"Nenhum jogo futuro encontrado entre {team_a_id} e {team_b_id} na temporada {season}")
             st.warning("Nenhum jogo futuro encontrado entre os times selecionados na temporada especificada.")
             return None
         st.error(f"Erro ao buscar próximo jogo: {response.status_code} - {response.text}")
@@ -202,7 +220,6 @@ def get_team_leagues(team_id, season):
 
 # Função para calcular médias (feitas e sofridas) com número de partidas
 def calculate_averages(games, team_id, weights):
-    # Inicializar todas as estatísticas, incluindo as sofridas
     stats = {
         "goals_scored": [], "goals_conceded": [],
         "shots": [], "shots_conceded": [],
@@ -220,7 +237,7 @@ def calculate_averages(games, team_id, weights):
     }
     weighted_values = {k: [] for k in stats.keys()}
     game_weights = {k: [] for k in stats.keys()}
-    game_counts = {k: 0 for k in stats.keys()}  # Contador de partidas por estatística
+    game_counts = {k: 0 for k in stats.keys()}
 
     for game in games:
         game_stats = get_game_stats(game["fixture"]["id"])
@@ -233,7 +250,6 @@ def calculate_averages(games, team_id, weights):
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
             opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
             if team_stats and opponent_stats:
-                # Estatísticas do time
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
                     value = stat["value"]
@@ -272,7 +288,6 @@ def calculate_averages(games, team_id, weights):
                     elif stat_type == "free kicks":
                         team_data["free_kicks"] = value
 
-                # Estatísticas sofridas (do adversário)
                 for stat in opponent_stats["statistics"]:
                     stat_type = stat["type"].lower()
                     value = stat["value"]
@@ -312,19 +327,16 @@ def calculate_averages(games, team_id, weights):
                         team_data["xga"] = value
                     elif stat_type == "free kicks":
                         team_data["free_kicks_conceded"] = value
-            # Remover o aviso anterior, usar os valores padrão (0) se não houver estatísticas
 
-        league_name = game["league"]["name"]
-        mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
-        weight = weights.get(mapped_name, 0.50)
-        
-        # Adicionar os dados ao dicionário stats e incrementar contadores
+        league_id = game["league"]["id"]
+        mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
+        weight = weights.get(mapped_name, 0.5)
+
         for key in stats:
             stats[key].append(team_data[key])
             if team_data[key] != 0 or (game_stats and team_stats and opponent_stats):
                 game_counts[key] += 1
-        
-        # Calcular valores ponderados
+
         for key in weighted_values:
             if "conceded" in key or "suffered" in key:
                 weighted_values[key].append(team_data[key] / max(weight, 0.1))
@@ -333,7 +345,6 @@ def calculate_averages(games, team_id, weights):
                 weighted_values[key].append(team_data[key] * weight)
                 game_weights[key].append(weight)
 
-    # Calcular médias simples e ponderadas
     simple_averages = {k: np.mean(v) if v else 0 for k, v in stats.items()}
     weighted_averages = {}
     for key in weighted_values:
@@ -351,15 +362,12 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
     confidence_intervals = {}
     predicted_counts = {}
     for stat in team_a_weighted.keys():
-        # Definir a estatística oposta (feita para sofrida ou vice-versa)
         opposite_stat = stat.replace("conceded", "shots").replace("suffered", "committed") if "conceded" in stat or "suffered" in stat else stat.replace("scored", "conceded").replace("committed", "suffered")
-        # Usar a estatística oposta se existir, caso contrário, usar a mesma
         if opposite_stat not in team_b_weighted:
             opposite_stat = stat
         a_pred = (team_a_weighted[stat] + team_b_weighted.get(opposite_stat, team_b_weighted[stat])) * 1.2 / 2 if "conceded" in stat or "suffered" in stat else (team_a_weighted[stat] + team_b_simple.get(stat, team_b_weighted[stat])) / 2
         b_pred = (team_b_weighted[stat] + team_a_weighted.get(opposite_stat, team_a_weighted[stat])) / 1.2 / 2 if "conceded" in stat or "suffered" in stat else (team_b_weighted[stat] + team_a_simple.get(stat, team_a_weighted[stat])) / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
-        # Calcular desvio padrão para intervalos de confiança
         a_values = [team_a_weighted[stat], team_b_weighted.get(opposite_stat, team_b_weighted[stat])]
         b_values = [team_b_weighted[stat], team_a_weighted.get(opposite_stat, team_a_weighted[stat])]
         a_std = np.std(a_values) if len(a_values) > 1 and None not in a_values else 0
@@ -369,7 +377,6 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
             "team_a": (a_pred - z * a_std / np.sqrt(2), a_pred + z * a_std / np.sqrt(2)),
             "team_b": (b_pred - z * b_std / np.sqrt(2), b_pred + z * b_std / np.sqrt(2))
         }
-        # Número de partidas para a previsão (média do número de partidas de cada equipe)
         predicted_counts[stat] = (team_a_counts[stat] + team_b_counts.get(opposite_stat, team_b_counts[stat])) // 2 if "conceded" in stat or "suffered" in stat else (team_a_counts[stat] + team_b_counts.get(stat, team_a_counts[stat])) // 2
     return predicted_stats, confidence_intervals, predicted_counts, predicted_counts
 
@@ -391,7 +398,6 @@ def predict_score(team_a_weighted, team_b_weighted):
     loss_prob = np.sum(prob_matrix[np.where(np.arange(max_goals)[:, None] < np.arange(max_goals)[None, :])])
     ci_a = (poisson.ppf(0.075, lambda_a), poisson.ppf(0.925, lambda_a))
     ci_b = (poisson.ppf(0.075, lambda_b), poisson.ppf(0.925, lambda_b))
-    # Calcular probabilidade de mais de 2.5 gols
     total_goals = lambda_a + lambda_b
     over_2_5_prob = 1 - poisson.cdf(2, total_goals)
     return {
@@ -410,9 +416,13 @@ def get_odds(fixture_id):
         st.warning("Não foi possível encontrar um jogo futuro entre os times selecionados para buscar odds.")
         return []
     url = f"{API_BASE_URL}/odds"
-    params = {"fixture": fixture_id}
+    params = {
+        "fixture": fixture_id,
+        "bet": "1"  # Mercado 1x2 (Vitória/Empate/Derrota)
+    }
     try:
         response = requests.get(url, headers=HEADERS, params=params)
+        logger.debug(f"Resposta da API para odds (fixture {fixture_id}): {response.status_code} - {response.text}")
         if response.status_code == 200:
             data = response.json()
             odds = data.get("response", [])
@@ -425,7 +435,7 @@ def get_odds(fixture_id):
         st.error(f"Erro ao buscar odds: {str(e)}")
         return []
 
-# Função para comparar odds e previsões (exibir probabilidades implícitas e previstas)
+# Função para comparar odds e previsões
 def compare_odds(predicted_stats, score_pred, odds):
     if not predicted_stats or score_pred["score"] == "N/A":
         st.warning("Não há previsões válidas para comparar com odds.")
@@ -435,13 +445,10 @@ def compare_odds(predicted_stats, score_pred, odds):
         return []
 
     comparison_data = []
-    # Calcular probabilidade de ambos marcarem
     btts_prob = poisson.pmf(1, predicted_stats["goals_scored"]["team_a"]) * poisson.pmf(1, predicted_stats["goals_scored"]["team_b"])
-    # Calcular probabilidade de mais/menos de 2.5 gols
     over_2_5_prob = score_pred["total_goals_prob"]
     under_2_5_prob = 1 - over_2_5_prob
 
-    # Processar os mercados principais
     for market in odds:
         market_name = market.get("name", "Desconhecido")
         bets = market.get("bets", [])
@@ -452,12 +459,11 @@ def compare_odds(predicted_stats, score_pred, odds):
             values = bet.get("values", [])
             if not values:
                 continue
-            # Processar apenas os mercados principais
             if bet_name in ["Match Winner", "Both Teams To Score", "Goals Over/Under"]:
                 for value in values:
                     odd = float(value.get("odd", 0))
                     if odd <= 0:
-                        continue  # Pular odds inválidas
+                        continue
                     implied_prob = 1 / odd
                     predicted_prob = 0
                     if bet_name == "Match Winner":
@@ -483,8 +489,8 @@ def compare_odds(predicted_stats, score_pred, odds):
                         "bet": bet_name,
                         "value": value.get("value", "Desconhecido"),
                         "odd": odd,
-                        "implied_prob": implied_prob * 100,  # Converter para porcentagem
-                        "predicted_prob": predicted_prob * 100  # Converter para porcentagem
+                        "implied_prob": implied_prob * 100,
+                        "predicted_prob": predicted_prob * 100
                     })
 
     return comparison_data
@@ -536,7 +542,6 @@ def main():
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
-    # Testar chave da API
     st.subheader("Verificação da Chave da API")
     if st.button("Testar Chave"):
         if test_api_key():
@@ -555,7 +560,6 @@ def main():
         "Exportar"
     ])
 
-    # Aba 1: Seleção de Times
     with tabs[0]:
         col1, col2 = st.columns(2)
         with col1:
@@ -589,7 +593,6 @@ def main():
                 st.session_state["season_b"] = season_b
                 st.success("Times selecionados com sucesso!")
 
-    # Aba 2: Jogos Analisados
     with tabs[1]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
@@ -607,9 +610,10 @@ def main():
                     away_team = game["teams"]["away"]["name"]
                     home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
                     away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    league_id = game["league"]["id"]
                     league_name = game["league"]["name"]
-                    mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
-                    weight = weights.get(mapped_name, 0.50)
+                    mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
+                    weight = weights.get(mapped_name, 0.5)
                     title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name})"
                     with st.expander(title):
                         stats = get_game_stats(game["fixture"]["id"])
@@ -642,9 +646,10 @@ def main():
                     away_team = game["teams"]["away"]["name"]
                     home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
                     away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    league_id = game["league"]["id"]
                     league_name = game["league"]["name"]
-                    mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
-                    weight = weights.get(mapped_name, 0.50)
+                    mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
+                    weight = weights.get(mapped_name, 0.5)
                     title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name})"
                     with st.expander(title):
                         stats = get_game_stats(game["fixture"]["id"])
@@ -671,7 +676,6 @@ def main():
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
 
-    # Aba 3: Médias
     with tabs[2]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
@@ -710,7 +714,6 @@ def main():
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para calcular as médias.")
 
-    # Aba 4: Estatísticas Previstas
     with tabs[3]:
         if "simple_a" in st.session_state:
             predicted_stats, confidence_intervals, predicted_counts, _ = predict_stats(
@@ -739,7 +742,6 @@ def main():
         else:
             st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
 
-    # Aba 5: Placar Provável
     with tabs[4]:
         if "weighted_a" in st.session_state:
             score_pred = predict_score(st.session_state["weighted_a"], st.session_state["weighted_b"])
@@ -756,7 +758,6 @@ def main():
         else:
             st.info("Calcule as médias na aba 'Médias' para prever o placar.")
 
-    # Aba 6: Odds x Previsão
     with tabs[5]:
         if "team_a" in st.session_state and "team_b" in st.session_state and "season_a" in st.session_state and "predicted_stats" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
@@ -777,7 +778,6 @@ def main():
         else:
             st.info("Selecione os times na aba 'Seleção de Times' e complete as previsões nas abas anteriores para comparar odds.")
 
-    # Aba 7: Exportar
     with tabs[6]:
         if "team_a" in st.session_state and "predicted_stats" in st.session_state and st.session_state["predicted_stats"]:
             if st.button("Exportar Resultados"):
