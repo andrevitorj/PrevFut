@@ -239,17 +239,52 @@ def calculate_averages(games, team_id, weights):
     game_counts = {k: 0 for k in stats.keys()}
     competition_weights = []  # Para calcular o fator médio de competição
 
+    stat_mapping = {
+        "total shots": "shots",
+        "shots on goal": "shots_on_target",
+        "corner kicks": "corners",
+        "ball possession": "possession",
+        "offsides": "offsides",
+        "fouls": "fouls_committed",
+        "yellow cards": "yellow_cards",
+        "red cards": "red_cards",
+        "passes accurate": "passes_accurate",
+        "passes": "passes_missed",
+        "expected goals": "xg",
+        "free kicks": "free_kicks"
+    }
+    stat_mapping_opponent = {
+        "total shots": "shots_conceded",
+        "shots on goal": "shots_on_target_conceded",
+        "corner kicks": "corners_conceded",
+        "ball possession": "possession_conceded",
+        "offsides": "offsides_conceded",
+        "fouls": "fouls_suffered",
+        "yellow cards": "yellow_cards_conceded",
+        "red cards": "red_cards_conceded",
+        "passes accurate": "passes_accurate_conceded",
+        "passes": "passes_missed_conceded",
+        "expected goals": "xga",
+        "expected goals against": "xga",
+        "free kicks": "free_kicks_conceded"
+    }
+
     for game in games:
         game_stats = get_game_stats(game["fixture"]["id"])
         team_data = {k: 0 for k in stats.keys()}
+        has_stats_for_team = False
+        has_stats_for_opponent = False
         is_home = game["teams"]["home"]["id"] == team_id
         team_data["goals_scored"] = game["goals"]["home" if is_home else "away"] or 0
         team_data["goals_conceded"] = game["goals"]["away" if is_home else "home"] or 0
 
+        stats_available = {k: False for k in stats.keys()}  # Rastreia se a estatística está disponível
+
         if game_stats:
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
             opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
-            if team_stats and opponent_stats:
+            if team_stats:
+                has_stats_for_team = True
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
                     value = stat["value"]
@@ -263,31 +298,16 @@ def calculate_averages(games, team_id, weights):
                             value = float(value) if value else 0.0
                         except (ValueError, TypeError):
                             value = 0.0
-                    if stat_type == "total shots":
-                        team_data["shots"] = value
-                    elif stat_type == "shots on goal":
-                        team_data["shots_on_target"] = value
-                    elif stat_type == "corner kicks":
-                        team_data["corners"] = value
-                    elif stat_type == "ball possession":
-                        team_data["possession"] = value
-                    elif stat_type == "offsides":
-                        team_data["offsides"] = value
-                    elif stat_type == "fouls":
-                        team_data["fouls_committed"] = value
-                    elif stat_type == "yellow cards":
-                        team_data["yellow_cards"] = value
-                    elif stat_type == "red cards":
-                        team_data["red_cards"] = value
-                    elif stat_type == "passes accurate":
-                        team_data["passes_accurate"] = value
-                    elif stat_type == "passes":
+                    if stat_type in stat_mapping:
+                        mapped_stat = stat_mapping[stat_type]
+                        team_data[mapped_stat] = value
+                        stats_available[mapped_stat] = True
+                    if stat_type == "passes":
                         team_data["passes_missed"] = (value or 0) - (team_data["passes_accurate"] or 0)
-                    elif stat_type == "expected goals":
-                        team_data["xg"] = value
-                    elif stat_type == "free kicks":
-                        team_data["free_kicks"] = value
+                        stats_available["passes_missed"] = True
 
+            if opponent_stats:
+                has_stats_for_opponent = True
                 for stat in opponent_stats["statistics"]:
                     stat_type = stat["type"].lower()
                     value = stat["value"]
@@ -301,42 +321,28 @@ def calculate_averages(games, team_id, weights):
                             value = float(value) if value else 0.0
                         except (ValueError, TypeError):
                             value = 0.0
-                    if stat_type == "total shots":
-                        team_data["shots_conceded"] = value
-                    elif stat_type == "shots on goal":
-                        team_data["shots_on_target_conceded"] = value
-                    elif stat_type == "corner kicks":
-                        team_data["corners_conceded"] = value
-                    elif stat_type == "ball possession":
-                        team_data["possession_conceded"] = value
-                    elif stat_type == "offsides":
-                        team_data["offsides_conceded"] = value
-                    elif stat_type == "fouls":
-                        team_data["fouls_suffered"] = value
-                    elif stat_type == "yellow cards":
-                        team_data["yellow_cards_conceded"] = value
-                    elif stat_type == "red cards":
-                        team_data["red_cards_conceded"] = value
-                    elif stat_type == "passes accurate":
-                        team_data["passes_accurate_conceded"] = value
-                    elif stat_type == "passes":
+                    if stat_type in stat_mapping_opponent:
+                        mapped_stat = stat_mapping_opponent[stat_type]
+                        team_data[mapped_stat] = value
+                        stats_available[mapped_stat] = True
+                    if stat_type == "passes":
                         team_data["passes_missed_conceded"] = (value or 0) - (team_data["passes_accurate_conceded"] or 0)
-                    elif stat_type == "expected goals":
-                        team_data["xga"] = value
-                    elif stat_type == "expected goals against":
-                        team_data["xga"] = value
-                    elif stat_type == "free kicks":
-                        team_data["free_kicks_conceded"] = value
+                        stats_available["passes_missed_conceded"] = True
 
         league_id = game["league"]["id"]
         mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
         weight = weights.get(mapped_name, 0.5)
         competition_weights.append(weight)
 
-        # Incrementar game_counts para cada estatística, mesmo que o valor seja 0
+        # Adicionar valores às listas e incrementar contadores apenas para estatísticas disponíveis
         for key in stats:
             stats[key].append(team_data[key])
-            game_counts[key] += 1  # Conta a partida, independentemente do valor
+            if key in ["goals_scored", "goals_conceded"]:
+                # Gols sempre têm valor, mesmo que 0
+                game_counts[key] += 1
+            elif stats_available[key] and (has_stats_for_team or has_stats_for_opponent):
+                # Incrementar apenas se a estatística específica estiver disponível
+                game_counts[key] += 1
 
         for key in adjusted_values:
             if "conceded" in key or "suffered" in key:
@@ -345,8 +351,8 @@ def calculate_averages(games, team_id, weights):
                 adjusted_values[key].append(team_data[key] * weight)
 
     # Calcular médias, tratando listas vazias ou com apenas zeros
-    simple_averages = {k: np.mean(v) if v and any(val != 0 for val in v) else 0 for k, v in stats.items()}
-    adjusted_averages = {k: np.mean(v) if v and any(val != 0 for val in v) else 0 for k, v in adjusted_values.items()}
+    simple_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in stats.items()}
+    adjusted_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in adjusted_values.items()}
     avg_competition_weight = np.mean(competition_weights) if competition_weights else 0.5
     return simple_averages, adjusted_averages, game_counts, avg_competition_weight
 
