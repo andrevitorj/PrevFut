@@ -201,14 +201,21 @@ def get_team_leagues(team_id, season):
 
 # Função para calcular médias (feitas e sofridas)
 def calculate_averages(games, team_id, weights):
+    # Inicializar todas as estatísticas, incluindo as sofridas
     stats = {
         "goals_scored": [], "goals_conceded": [],
-        "shots": [], "shots_on_target": [],
-        "corners": [], "possession": [],
-        "offsides": [], "fouls_committed": [], "fouls_suffered": [],
-        "yellow_cards": [], "red_cards": [],
-        "passes_accurate": [], "passes_missed": [],
-        "xg": [], "xga": [], "free_kicks": []
+        "shots": [], "shots_conceded": [],
+        "shots_on_target": [], "shots_on_target_conceded": [],
+        "corners": [], "corners_conceded": [],
+        "possession": [], "possession_conceded": [],
+        "offsides": [], "offsides_conceded": [],
+        "fouls_committed": [], "fouls_suffered": [],
+        "yellow_cards": [], "yellow_cards_conceded": [],
+        "red_cards": [], "red_cards_conceded": [],
+        "passes_accurate": [], "passes_accurate_conceded": [],
+        "passes_missed": [], "passes_missed_conceded": [],
+        "xg": [], "xga": [],
+        "free_kicks": [], "free_kicks_conceded": []
     }
     weighted_values = {k: [] for k in stats.keys()}
     game_weights = {k: [] for k in stats.keys()}
@@ -226,6 +233,7 @@ def calculate_averages(games, team_id, weights):
             if not team_stats or not opponent_stats:
                 st.warning(f"Sem estatísticas completas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
             else:
+                # Estatísticas do time
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
                     value = stat["value"]
@@ -264,7 +272,7 @@ def calculate_averages(games, team_id, weights):
                     elif stat_type == "free kicks":
                         team_data["free_kicks"] = value
 
-                # Coletar estatísticas sofridas do adversário
+                # Estatísticas sofridas (do adversário)
                 for stat in opponent_stats["statistics"]:
                     stat_type = stat["type"].lower()
                     value = stat["value"]
@@ -314,10 +322,12 @@ def calculate_averages(games, team_id, weights):
         mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
         if mapped_name in weights:
             weight = weights[mapped_name]
+        
+        # Adicionar os dados ao dicionário stats
         for key in stats:
             stats[key].append(team_data[key])
-            if key + "_conceded" in team_data and team_data[key + "_conceded"] is not None:
-                stats[key + "_conceded"] = stats.get(key + "_conceded", []) + [team_data[key + "_conceded"]]
+        
+        # Calcular valores ponderados
         for key in weighted_values:
             if "conceded" in key or "suffered" in key:
                 weighted_values[key].append(team_data[key] / max(weight, 0.1))
@@ -326,6 +336,7 @@ def calculate_averages(games, team_id, weights):
                 weighted_values[key].append(team_data[key] * weight)
                 game_weights[key].append(weight)
 
+    # Calcular médias simples e ponderadas
     simple_averages = {k: np.mean(v) if v else 0 for k, v in stats.items()}
     weighted_averages = {}
     for key in weighted_values:
