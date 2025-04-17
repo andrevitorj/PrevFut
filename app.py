@@ -792,7 +792,8 @@ def main():
                 st.write(f"Intervalo de Confiança (Gols {st.session_state['team_b']['team']['name']}): [{score_pred['ci']['team_b'][0]:.1f}, {score_pred['ci']['team_b'][1]:.1f}]")
             else:
                 st.warning("Não foi possível prever o placar devido à falta de dados de gols.")
-        ..
+        else:
+            st.info("Calcule as médias na aba 'Médias' para prever o placar.")
 
     with tabs[5]:
         if "team_a" in st.session_state and "team_b" in st.session_state and "season_a" in st.session_state and "predicted_stats" in st.session_state:
