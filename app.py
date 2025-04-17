@@ -571,3 +571,235 @@ def main():
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
             else:
                 teams_a = search_team(team_a_name)
+                teams_b = search_team(team_b_name)
+                st.session_state["teams_a"] = teams_a
+                st.session_state["teams_b"] = teams_b
+                if not teams_a:
+                    st.error("Nenhum time encontrado para o Time A.")
+                if not teams_b:
+                    st.error("Nenhum time encontrado para o Time B.")
+        if "teams_a" in st.session_state and "teams_b" in st.session_state and st.session_state["teams_a"] and st.session_state["teams_b"]:
+            st.subheader("Selecione os Times")
+            team_a_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_a"]]
+            team_b_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_b"]]
+            team_a_selected = st.selectbox("Time A", team_a_options, key="team_a_select")
+            team_b_selected = st.selectbox("Time B", team_b_options, key="team_b_select")
+            if st.button("Confirmar Seleção"):
+                st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
+                st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
+                st.session_state["season_a"] = season_a
+                st.session_state["season_b"] = season_b
+                st.success("Times selecionados com sucesso!")
+
+    with tabs[1]:
+        if "team_a" in st.session_state and "team_b" in st.session_state:
+            team_a_id = st.session_state["team_a"]["team"]["id"]
+            team_b_id = st.session_state["team_b"]["team"]["id"]
+            season_a = st.session_state["season_a"]
+            season_b = st.session_state["season_b"]
+            games_a = get_team_games(team_a_id, season_a, home=True)
+            games_b = get_team_games(team_b_id, season_b, home=False)
+            if games_a:
+                st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
+                for game in games_a:
+                    game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
+                    formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
+                    home_team = game["teams"]["home"]["name"]
+                    away_team = game["teams"]["away"]["name"]
+                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
+                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    league_id = game["league"]["id"]
+                    league_name = game["league"]["name"]
+                    mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
+                    weight = weights.get(mapped_name, 0.5)
+                    stats = get_game_stats(game["fixture"]["id"])
+                    has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
+                    title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name}){title_suffix}"
+                    with st.expander(title):
+                        if has_stats:
+                            data = []
+                            for stat in stats:
+                                if stat["team"]["id"] == team_a_id:
+                                    for s in stat["statistics"]:
+                                        value = s["value"]
+                                        if s["type"].lower() == "ball possession" and isinstance(value, str):
+                                            value = value.replace("%", "").strip()
+                                            value = float(value) if value else 0.0
+                                        else:
+                                            try:
+                                                value = float(value) if value is not None else 0.0
+                                            except (ValueError, TypeError):
+                                                value = 0.0
+                                        data.append([s["type"], value])
+                            df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
+                            df_stats["Valor"] = df_stats["Valor"].round(1)
+                            st.dataframe(df_stats)
+                        else:
+                            st.write("Nenhuma estatística disponível para este jogo.")
+            else:
+                st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}. Tente outra temporada, como 2024.")
+            if games_b:
+                st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
+                for game in games_b:
+                    game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
+                    formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
+                    home_team = game["teams"]["home"]["name"]
+                    away_team = game["teams"]["away"]["name"]
+                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
+                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    league_id = game["league"]["id"]
+                    league_name = game["league"]["name"]
+                    mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
+                    weight = weights.get(mapped_name, 0.5)
+                    stats = get_game_stats(game["fixture"]["id"])
+                    has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
+                    title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name}){title_suffix}"
+                    with st.expander(title):
+                        if has_stats:
+                            data = []
+                            for stat in stats:
+                                if stat["team"]["id"] == team_b_id:
+                                    for s in stat["statistics"]:
+                                        value = s["value"]
+                                        if s["type"].lower() == "ball possession" and isinstance(value, str):
+                                            value = value.replace("%", "").strip()
+                                            value = float(value) if value else 0.0
+                                        else:
+                                            try:
+                                                value = float(value) if value is not None else 0.0
+                                            except (ValueError, TypeError):
+                                                value = 0.0
+                                        data.append([s["type"], value])
+                            df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
+                            df_stats["Valor"] = df_stats["Valor"].round(1)
+                            st.dataframe(df_stats)
+                        else:
+                            st.write("Nenhuma estatística disponível para este jogo.")
+            else:
+                st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
+        else:
+            st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
+
+    with tabs[2]:
+        if "team_a" in st.session_state and "team_b" in st.session_state:
+            team_a_id = st.session_state["team_a"]["team"]["id"]
+            team_b_id = st.session_state["team_b"]["team"]["id"]
+            season_a = st.session_state["season_a"]
+            season_b = st.session_state["season_b"]
+            games_a = get_team_games(team_a_id, season_a, home=True)
+            games_b = get_team_games(team_b_id, season_b, home=False)
+            if games_a and games_b:
+                simple_a, weighted_a, team_a_counts = calculate_averages(games_a, team_a_id, weights)
+                simple_b, weighted_b, team_b_counts = calculate_averages(games_b, team_b_id, weights)
+                st.session_state["simple_a"] = simple_a
+                st.session_state["weighted_a"] = weighted_a
+                st.session_state["simple_b"] = simple_b
+                st.session_state["weighted_b"] = weighted_b
+                st.session_state["team_a_counts"] = team_a_counts
+                st.session_state["team_b_counts"] = team_b_counts
+                df_a = pd.DataFrame({
+                    "Estatística": simple_a.keys(),
+                    "Média Simples": [round(v, 1) for v in simple_a.values()],
+                    "Média Ponderada": [round(v, 1) for v in weighted_a.values()],
+                    "Nº Partidas": [team_a_counts[k] for k in simple_a.keys()]
+                })
+                df_b = pd.DataFrame({
+                    "Estatística": simple_b.keys(),
+                    "Média Simples": [round(v, 1) for v in simple_b.values()],
+                    "Média Ponderada": [round(v, 1) for v in weighted_b.values()],
+                    "Nº Partidas": [team_b_counts[k] for k in simple_b.keys()]
+                })
+                st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
+                st.dataframe(df_a)
+                st.write(f"Médias do Time B ({st.session_state['team_b']['team']['name']}):")
+                st.dataframe(df_b)
+            else:
+                st.warning("Não foi possível calcular médias. Verifique se há jogos finalizados na aba 'Jogos Analisados'.")
+        else:
+            st.info("Selecione os times na aba 'Seleção de Times' para calcular as médias.")
+
+    with tabs[3]:
+        if "simple_a" in st.session_state:
+            predicted_stats, confidence_intervals, predicted_counts, _ = predict_stats(
+                st.session_state["simple_a"], st.session_state["weighted_a"],
+                st.session_state["simple_b"], st.session_state["weighted_b"],
+                st.session_state["team_a_counts"], st.session_state["team_b_counts"]
+            )
+            st.session_state["predicted_stats"] = predicted_stats
+            st.session_state["confidence_intervals"] = confidence_intervals
+            st.session_state["predicted_counts"] = predicted_counts
+            if predicted_stats:
+                df_pred = pd.DataFrame([
+                    {
+                        "Estatística": stat,
+                        f"{st.session_state['team_a']['team']['name']}": round(pred["team_a"], 1),
+                        f"{st.session_state['team_a']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_a'][0], 1)}, {round(confidence_intervals[stat]['team_a'][1], 1)}]",
+                        f"{st.session_state['team_b']['team']['name']}": round(pred["team_b"], 1),
+                        f"{st.session_state['team_b']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]",
+                        "Nº Partidas": predicted_counts[stat]
+                    }
+                    for stat, pred in predicted_stats.items()
+                ])
+                st.dataframe(df_pred)
+            else:
+                st.warning("Não foi possível gerar previsões devido à falta de dados de gols.")
+        else:
+            st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
+
+    with tabs[4]:
+        if "weighted_a" in st.session_state:
+            score_pred = predict_score(st.session_state["weighted_a"], st.session_state["weighted_b"])
+            st.session_state["score_pred"] = score_pred
+            if score_pred["score"] != "N/A":
+                st.write(f"Placar mais provável: {score_pred['score']}")
+                st.write(f"Probabilidade de Vitória: {score_pred['probs']['win']*100:.1f}%")
+                st.write(f"Probabilidade de Empate: {score_pred['probs']['draw']*100:.1f}%")
+                st.write(f"Probabilidade de Derrota: {score_pred['probs']['loss']*100:.1f}%")
+                st.write(f"Intervalo de Confiança (Gols {st.session_state['team_a']['team']['name']}): [{score_pred['ci']['team_a'][0]:.1f}, {score_pred['ci']['team_a'][1]:.1f}]")
+                st.write(f"Intervalo de Confiança (Gols {st.session_state['team_b']['team']['name']}): [{score_pred['ci']['team_b'][0]:.1f}, {score_pred['ci']['team_b'][1]:.1f}]")
+            else:
+                st.warning("Não foi possível prever o placar devido à falta de dados de gols.")
+        else:
+            st.info("Calcule as médias na aba 'Médias' para prever o placar.")
+
+    with tabs[5]:
+        if "team_a" in st.session_state and "team_b" in st.session_state and "season_a" in st.session_state and "predicted_stats" in st.session_state:
+            team_a_id = st.session_state["team_a"]["team"]["id"]
+            team_b_id = st.session_state["team_b"]["team"]["id"]
+            season = st.session_state["season_a"]
+            fixture_id = find_next_fixture(team_a_id, team_b_id, season)
+            odds = get_odds(fixture_id)
+            comparison_data = compare_odds(st.session_state["predicted_stats"], st.session_state["score_pred"], odds)
+            st.session_state["comparison_data"] = comparison_data
+            if comparison_data:
+                df_odds = pd.DataFrame(comparison_data)
+                df_odds["implied_prob"] = df_odds["implied_prob"].round(1)
+                df_odds["predicted_prob"] = df_odds["predicted_prob"].round(1)
+                df_odds["odd"] = df_odds["odd"].round(1)
+                st.dataframe(df_odds)
+            else:
+                st.warning("Nenhuma odd disponível para os mercados principais ou os dados retornados não atendem aos critérios de comparação.")
+        else:
+            st.info("Selecione os times na aba 'Seleção de Times' e complete as previsões nas abas anteriores para comparar odds.")
+
+    with tabs[6]:
+        if "team_a" in st.session_state and "predicted_stats" in st.session_state and st.session_state["predicted_stats"]:
+            if st.button("Exportar Resultados"):
+                filename = export_results(
+                    st.session_state["team_a"], st.session_state["team_b"],
+                    st.session_state["simple_a"], st.session_state["weighted_a"],
+                    st.session_state["simple_b"], st.session_state["weighted_b"],
+                    st.session_state["predicted_stats"], st.session_state["confidence_intervals"],
+                    st.session_state["score_pred"], st.session_state["comparison_data"],
+                    st.session_state["team_a_counts"], st.session_state["team_b_counts"], st.session_state["predicted_counts"]
+                )
+                with open(filename, "rb") as f:
+                    st.download_button("Baixar .xlsx", f, file_name=filename)
+                st.success("Resultados exportados com sucesso!")
+        else:
+            st.info("Complete as previsões nas abas anteriores para exportar os resultados.")
+
+if __name__ == "__main__":
+    main()
