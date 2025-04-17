@@ -351,14 +351,44 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     if team_a_adjusted["goals_scored"] == 0 or team_b_adjusted["goals_scored"] == 0:
         st.warning("Não há dados suficientes de gols para previsões estatísticas confiáveis.")
         return {}, {}, {}, {}
+
     predicted_stats = {}
     confidence_intervals = {}
     predicted_counts = {}
+
+    # Mapeamento explícito para estatísticas "feitas" e "sofridas"
+    stat_pairs = {
+        "goals_scored": "goals_conceded",
+        "shots": "shots_conceded",
+        "shots_on_target": "shots_on_target_conceded",
+        "corners": "corners_conceded",
+        "possession": "possession_conceded",
+        "offsides": "offsides_conceded",
+        "fouls_committed": "fouls_suffered",
+        "yellow_cards": "yellow_cards_conceded",
+        "red_cards": "red_cards_conceded",
+        "passes_accurate": "passes_accurate_conceded",
+        "passes_missed": "passes_missed_conceded",
+        "xg": "xga",
+        "free_kicks": "free_kicks_conceded"
+    }
+
     for stat in team_a_adjusted.keys():
-        opposite_stat = stat.replace("scored", "conceded").replace("committed", "suffered") if "scored" in stat or "committed" in stat else stat.replace("conceded", "scored").replace("suffered", "committed")
-        a_pred = (team_a_adjusted[stat] + team_b_adjusted[opposite_stat]) * 1.2 / 2
-        b_pred = (team_b_adjusted[stat] + team_a_adjusted[opposite_stat]) / 1.2 / 2
+        # Determinar a estatística oposta
+        if stat in stat_pairs:
+            opposite_stat = stat_pairs[stat]
+        elif stat in stat_pairs.values():
+            opposite_stat = next(key for key, value in stat_pairs.items() if value == stat)
+        else:
+            # Para estatísticas sem par (ex.: xga já mapeado via xg), usar a mesma estatística
+            opposite_stat = stat
+
+        # Calcular previsões sem o fator mandante/visitante
+        a_pred = (team_a_adjusted[stat] + team_b_adjusted[opposite_stat]) / 2
+        b_pred = (team_b_adjusted[stat] + team_a_adjusted[opposite_stat]) / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
+
+        # Calcular intervalos de confiança
         a_values = [team_a_adjusted[stat], team_b_adjusted[opposite_stat]]
         b_values = [team_b_adjusted[stat], team_a_adjusted[opposite_stat]]
         a_std = np.std(a_values) if len(a_values) > 1 and None not in a_values else 0
@@ -369,6 +399,7 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
             "team_b": (b_pred - z * b_std / np.sqrt(2), b_pred + z * b_std / np.sqrt(2))
         }
         predicted_counts[stat] = (team_a_counts[stat] + team_b_counts[opposite_stat]) // 2
+
     return predicted_stats, confidence_intervals, predicted_counts, predicted_counts
 
 # Função para prever placar
