@@ -569,7 +569,15 @@ def main():
                 for game in games_a:
                     game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
                     formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
-                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {formatted_date}"):
+                    home_team = game["teams"]["home"]["name"]
+                    away_team = game["teams"]["away"]["name"]
+                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
+                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    league_name = game["league"]["name"]
+                    mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
+                    weight = weights.get(mapped_name, 0.50)
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name})"
+                    with st.expander(title):
                         stats = get_game_stats(game["fixture"]["id"])
                         if stats:
                             data = []
@@ -598,7 +606,15 @@ def main():
                 for game in games_b:
                     game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
                     formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
-                    with st.expander(f"{game['teams']['home']['name']} vs {game['teams']['away']['name']} - {formatted_date}"):
+                    home_team = game["teams"]["home"]["name"]
+                    away_team = game["teams"]["away"]["name"]
+                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
+                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    league_name = game["league"]["name"]
+                    mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
+                    weight = weights.get(mapped_name, 0.50)
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name})"
+                    with st.expander(title):
                         stats = get_game_stats(game["fixture"]["id"])
                         if stats:
                             data = []
