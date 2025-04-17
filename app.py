@@ -570,4 +570,4 @@ def main():
             if len(team_a_name) < 3 or len(team_b_name) < 3:
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
             else:
-                teams_a = search_team(team_a_name
+                teams_a = search_team(team_a_name)
