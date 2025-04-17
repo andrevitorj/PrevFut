@@ -333,10 +333,10 @@ def calculate_averages(games, team_id, weights):
         weight = weights.get(mapped_name, 0.5)
         competition_weights.append(weight)
 
+        # Incrementar game_counts para cada estatística, mesmo que o valor seja 0
         for key in stats:
             stats[key].append(team_data[key])
-            if team_data[key] != 0 or (game_stats and team_stats and opponent_stats):
-                game_counts[key] += 1
+            game_counts[key] += 1  # Conta a partida, independentemente do valor
 
         for key in adjusted_values:
             if "conceded" in key or "suffered" in key:
@@ -344,8 +344,9 @@ def calculate_averages(games, team_id, weights):
             else:
                 adjusted_values[key].append(team_data[key] * weight)
 
-    simple_averages = {k: np.mean(v) if v else 0 for k, v in stats.items()}
-    adjusted_averages = {k: np.mean(v) if v else 0 for k, v in adjusted_values.items()}
+    # Calcular médias, tratando listas vazias ou com apenas zeros
+    simple_averages = {k: np.mean(v) if v and any(val != 0 for val in v) else 0 for k, v in stats.items()}
+    adjusted_averages = {k: np.mean(v) if v and any(val != 0 for val in v) else 0 for k, v in adjusted_values.items()}
     avg_competition_weight = np.mean(competition_weights) if competition_weights else 0.5
     return simple_averages, adjusted_averages, game_counts, avg_competition_weight
 
