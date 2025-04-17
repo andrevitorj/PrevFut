@@ -643,7 +643,7 @@ def main():
 
     # Aba 6: Odds x Previsão
     with tabs[5]:
-        if "predicted_stats" in st.session_state:
+        if "team_a" in st.session_state and "team_b" in st.session_state and "season_a" in st.session_state and "predicted_stats" in st.session_state:
             # Buscar o próximo jogo entre os times
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
@@ -658,7 +658,7 @@ def main():
             else:
                 st.warning("Nenhuma aposta de valor encontrada ou odds indisponíveis para o jogo.")
         else:
-            st.info("Gere previsões na aba 'Estatísticas Previstas' para comparar odds.")
+            st.info("Selecione os times na aba 'Seleção de Times' e complete as previsões nas abas anteriores para comparar odds.")
 
     # Aba 7: Exportar
     with tabs[6]:
