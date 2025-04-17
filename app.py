@@ -71,7 +71,8 @@ LEAGUE_MAPPING = {
     "Copa Sudamericana": "Sul-Americana",
     "Serie B Brasil": "Brasileirão B",
     "Paranaense 1ª Divisão": "Estaduais Fracos",
-    "UEFA Champions League": "Champions League"
+    "UEFA Champions League": "Champions League",
+    "UEFA Europa League": "Europa League"
 }
 
 # Função para buscar times
