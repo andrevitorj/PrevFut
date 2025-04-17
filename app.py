@@ -72,7 +72,8 @@ LEAGUE_MAPPING = {
     "Serie B Brasil": "Brasileirão B",
     "Paranaense 1ª Divisão": "Estaduais Fracos",
     "UEFA Champions League": "Champions League",
-    "UEFA Europa League": "Europa League"
+    "UEFA Europa League": "Europa League",
+    "Mineiro - 1": "Estaduais Fortes"
 }
 
 # Função para buscar times
@@ -199,7 +200,7 @@ def get_team_leagues(team_id, season):
         st.error(f"Erro ao buscar ligas: {str(e)}")
         return []
 
-# Função para calcular médias (feitas e sofridas)
+# Função para calcular médias (feitas e sofridas) com número de partidas
 def calculate_averages(games, team_id, weights):
     # Inicializar todas as estatísticas, incluindo as sofridas
     stats = {
@@ -219,6 +220,7 @@ def calculate_averages(games, team_id, weights):
     }
     weighted_values = {k: [] for k in stats.keys()}
     game_weights = {k: [] for k in stats.keys()}
+    game_counts = {k: 0 for k in stats.keys()}  # Contador de partidas por estatística
 
     for game in games:
         game_stats = get_game_stats(game["fixture"]["id"])
@@ -230,9 +232,7 @@ def calculate_averages(games, team_id, weights):
         if game_stats:
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
             opponent_stats = next((s for s in game_stats if s["team"]["id"] != team_id), None)
-            if not team_stats or not opponent_stats:
-                st.warning(f"Sem estatísticas completas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
-            else:
+            if team_stats and opponent_stats:
                 # Estatísticas do time
                 for stat in team_stats["statistics"]:
                     stat_type = stat["type"].lower()
@@ -312,20 +312,17 @@ def calculate_averages(games, team_id, weights):
                         team_data["xga"] = value
                     elif stat_type == "free kicks":
                         team_data["free_kicks_conceded"] = value
-        else:
-            st.warning(f"Sem estatísticas para o jogo entre {game['teams']['home']['name']} vs {game['teams']['away']['name']} em {datetime.strptime(game['fixture']['date'], '%Y-%m-%dT%H:%M:%S+00:00').strftime('%d/%m/%Y %H:%M')}. Usando apenas gols de /fixtures.")
+            # Remover o aviso anterior, usar os valores padrão (0) se não houver estatísticas
 
-        opponent_id = game["teams"]["away"]["id"] if is_home else game["teams"]["home"]["id"]
-        leagues = get_team_leagues(opponent_id, game["league"]["season"])
-        weight = 0.50
         league_name = game["league"]["name"]
         mapped_name = LEAGUE_MAPPING.get(league_name, league_name)
-        if mapped_name in weights:
-            weight = weights[mapped_name]
+        weight = weights.get(mapped_name, 0.50)
         
-        # Adicionar os dados ao dicionário stats
+        # Adicionar os dados ao dicionário stats e incrementar contadores
         for key in stats:
             stats[key].append(team_data[key])
+            if team_data[key] != 0 or (game_stats and team_stats and opponent_stats):
+                game_counts[key] += 1
         
         # Calcular valores ponderados
         for key in weighted_values:
@@ -343,15 +340,16 @@ def calculate_averages(games, team_id, weights):
         weighted_sum = sum(weighted_values[key])
         total_weight = sum(game_weights[key]) if game_weights[key] else 1
         weighted_averages[key] = weighted_sum / total_weight if total_weight > 0 else 0
-    return simple_averages, weighted_averages
+    return simple_averages, weighted_averages, game_counts
 
 # Função para prever estatísticas (usando feitas e sofridas)
-def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted):
+def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted, team_a_counts, team_b_counts):
     if team_a_weighted["goals_scored"] == 0 or team_b_weighted["goals_scored"] == 0:
         st.warning("Não há dados suficientes de gols para previsões estatísticas confiáveis.")
-        return {}, {}
+        return {}, {}, {}, {}
     predicted_stats = {}
     confidence_intervals = {}
+    predicted_counts = {}
     for stat in team_a_weighted.keys():
         # Definir a estatística oposta (feita para sofrida ou vice-versa)
         opposite_stat = stat.replace("conceded", "shots").replace("suffered", "committed") if "conceded" in stat or "suffered" in stat else stat.replace("scored", "conceded").replace("committed", "suffered")
@@ -371,7 +369,9 @@ def predict_stats(team_a_simple, team_a_weighted, team_b_simple, team_b_weighted
             "team_a": (a_pred - z * a_std / np.sqrt(2), a_pred + z * a_std / np.sqrt(2)),
             "team_b": (b_pred - z * b_std / np.sqrt(2), b_pred + z * b_std / np.sqrt(2))
         }
-    return predicted_stats, confidence_intervals
+        # Número de partidas para a previsão (média do número de partidas de cada equipe)
+        predicted_counts[stat] = (team_a_counts[stat] + team_b_counts.get(opposite_stat, team_b_counts[stat])) // 2 if "conceded" in stat or "suffered" in stat else (team_a_counts[stat] + team_b_counts.get(stat, team_a_counts[stat])) // 2
+    return predicted_stats, confidence_intervals, predicted_counts, predicted_counts
 
 # Função para prever placar
 def predict_score(team_a_weighted, team_b_weighted):
@@ -490,23 +490,24 @@ def compare_odds(predicted_stats, score_pred, odds):
     return comparison_data
 
 # Função para exportar resultados
-def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, predicted_stats, confidence_intervals, score_pred, comparison_data):
+def export_results(team_a, team_b, simple_a, weighted_a, simple_b, weighted_b, predicted_stats, confidence_intervals, score_pred, comparison_data, team_a_counts, team_b_counts, predicted_counts):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Médias"
-    ws.append(["Time", "Estatística", "Média Simples", "Média Ponderada"])
+    ws.append(["Time", "Estatística", "Média Simples", "Média Ponderada", "Nº Partidas"])
     for stat in simple_a.keys():
-        ws.append([team_a["team"]["name"], stat, round(simple_a[stat], 1), round(weighted_a[stat], 1)])
-        ws.append([team_b["team"]["name"], stat, round(simple_b[stat], 1), round(weighted_b[stat], 1)])
+        ws.append([team_a["team"]["name"], stat, round(simple_a[stat], 1), round(weighted_a[stat], 1), team_a_counts[stat]])
+        ws.append([team_b["team"]["name"], stat, round(simple_b[stat], 1), round(weighted_b[stat], 1), team_b_counts[stat]])
     ws = wb.create_sheet("Previsões")
-    ws.append(["Estatística", f"{team_a['team']['name']} (Prev)", f"{team_a['team']['name']} (IC 85%)", f"{team_b['team']['name']} (Prev)", f"{team_b['team']['name']} (IC 85%)"])
+    ws.append(["Estatística", f"{team_a['team']['name']} (Prev)", f"{team_a['team']['name']} (IC 85%)", f"{team_b['team']['name']} (Prev)", f"{team_b['team']['name']} (IC 85%)", "Nº Partidas"])
     for stat in predicted_stats.keys():
         ws.append([
             stat,
             round(predicted_stats[stat]["team_a"], 1),
             f"[{round(confidence_intervals[stat]['team_a'][0], 1)}, {round(confidence_intervals[stat]['team_a'][1], 1)}]",
             round(predicted_stats[stat]["team_b"], 1),
-            f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]"
+            f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]",
+            predicted_counts[stat]
         ])
     ws = wb.create_sheet("Placar Provável")
     ws.append(["Placar", score_pred["score"]])
@@ -630,8 +631,6 @@ def main():
                             df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
                             df_stats["Valor"] = df_stats["Valor"].round(1)
                             st.dataframe(df_stats)
-                        else:
-                            st.warning("Nenhuma estatística disponível para este jogo, mas gols podem estar em /fixtures.")
             else:
                 st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}. Tente outra temporada, como 2024.")
             if games_b:
@@ -667,8 +666,6 @@ def main():
                             df_stats = pd.DataFrame(data, columns=["Estatística", "Valor"])
                             df_stats["Valor"] = df_stats["Valor"].round(1)
                             st.dataframe(df_stats)
-                        else:
-                            st.warning("Nenhuma estatística disponível para este jogo, mas gols podem estar em /fixtures.")
             else:
                 st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
         else:
@@ -684,21 +681,25 @@ def main():
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a and games_b:
-                simple_a, weighted_a = calculate_averages(games_a, team_a_id, weights)
-                simple_b, weighted_b = calculate_averages(games_b, team_b_id, weights)
+                simple_a, weighted_a, team_a_counts = calculate_averages(games_a, team_a_id, weights)
+                simple_b, weighted_b, team_b_counts = calculate_averages(games_b, team_b_id, weights)
                 st.session_state["simple_a"] = simple_a
                 st.session_state["weighted_a"] = weighted_a
                 st.session_state["simple_b"] = simple_b
                 st.session_state["weighted_b"] = weighted_b
+                st.session_state["team_a_counts"] = team_a_counts
+                st.session_state["team_b_counts"] = team_b_counts
                 df_a = pd.DataFrame({
                     "Estatística": simple_a.keys(),
                     "Média Simples": [round(v, 1) for v in simple_a.values()],
-                    "Média Ponderada": [round(v, 1) for v in weighted_a.values()]
+                    "Média Ponderada": [round(v, 1) for v in weighted_a.values()],
+                    "Nº Partidas": [team_a_counts[k] for k in simple_a.keys()]
                 })
                 df_b = pd.DataFrame({
                     "Estatística": simple_b.keys(),
                     "Média Simples": [round(v, 1) for v in simple_b.values()],
-                    "Média Ponderada": [round(v, 1) for v in weighted_b.values()]
+                    "Média Ponderada": [round(v, 1) for v in weighted_b.values()],
+                    "Nº Partidas": [team_b_counts[k] for k in simple_b.keys()]
                 })
                 st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
                 st.dataframe(df_a)
@@ -712,12 +713,14 @@ def main():
     # Aba 4: Estatísticas Previstas
     with tabs[3]:
         if "simple_a" in st.session_state:
-            predicted_stats, confidence_intervals = predict_stats(
+            predicted_stats, confidence_intervals, predicted_counts, _ = predict_stats(
                 st.session_state["simple_a"], st.session_state["weighted_a"],
-                st.session_state["simple_b"], st.session_state["weighted_b"]
+                st.session_state["simple_b"], st.session_state["weighted_b"],
+                st.session_state["team_a_counts"], st.session_state["team_b_counts"]
             )
             st.session_state["predicted_stats"] = predicted_stats
             st.session_state["confidence_intervals"] = confidence_intervals
+            st.session_state["predicted_counts"] = predicted_counts
             if predicted_stats:
                 df_pred = pd.DataFrame([
                     {
@@ -725,7 +728,8 @@ def main():
                         f"{st.session_state['team_a']['team']['name']}": round(pred["team_a"], 1),
                         f"{st.session_state['team_a']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_a'][0], 1)}, {round(confidence_intervals[stat]['team_a'][1], 1)}]",
                         f"{st.session_state['team_b']['team']['name']}": round(pred["team_b"], 1),
-                        f"{st.session_state['team_b']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]"
+                        f"{st.session_state['team_b']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]",
+                        "Nº Partidas": predicted_counts[stat]
                     }
                     for stat, pred in predicted_stats.items()
                 ])
@@ -782,7 +786,8 @@ def main():
                     st.session_state["simple_a"], st.session_state["weighted_a"],
                     st.session_state["simple_b"], st.session_state["weighted_b"],
                     st.session_state["predicted_stats"], st.session_state["confidence_intervals"],
-                    st.session_state["score_pred"], st.session_state["comparison_data"]
+                    st.session_state["score_pred"], st.session_state["comparison_data"],
+                    st.session_state["team_a_counts"], st.session_state["team_b_counts"], st.session_state["predicted_counts"]
                 )
                 with open(filename, "rb") as f:
                     st.download_button("Baixar .xlsx", f, file_name=filename)
