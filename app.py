@@ -73,6 +73,7 @@ def load_weights():
 # Mapeamento de IDs de ligas para nomes usados nos pesos
 LEAGUE_MAPPING = {
     13: "CONMEBOL Libertadores",
+    11: "CONMEBOL Sudamericana",
     2: "UEFA Champions League",
     848: "UEFA Europa Conference League",
     3: "UEFA Europa League",
