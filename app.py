@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
+import PyPDF2
+import re
 
 # Configurar logging para depuração (não será exibido na interface)
 logging.basicConfig(level=logging.DEBUG)
@@ -45,53 +47,45 @@ def test_api_key():
         st.error(f"Erro ao testar chave: {str(e)}")
         return False
 
-# Carregar pesos das competições com base nos IDs
-def load_weights():
-    try:
-        with open("pesos.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {
-            "CONMEBOL Libertadores": 0.75,  # ID 13
-            "CONMEBOL Sudamericana": 0.65,  # ID 11
-            "UEFA Champions League": 1.0,   # ID 2
-            "UEFA Europa Conference League": 0.65,  # ID 848
-            "UEFA Europa League": 0.85,     # ID 3
-            "Serie A (Brazil)": 0.7,        # ID 71
-            "Serie B (Brazil)": 0.6,        # ID 72
-            "Serie C (Brazil)": 0.5,        # ID 75
-            "Liga Profesional Argentina": 0.65,  # ID 128
-            "Copa do Brasil": 0.65,         # ID 73
-            "Premier League": 0.85,         # ID 39
-            "La Liga": 0.8,                 # ID 140
-            "Bundesliga": 0.8,              # ID 78
-            "Serie A (Italy)": 0.8,         # ID 135
-            "Ligue 1": 0.75,                # ID 61
-            "Primeira Liga": 0.7,           # ID 94
-            "FIFA Club World Cup": 0.8,     # ID 15
-            "Outras ligas não mapeadas": 0.5
-        }
+# Função para extrair dados do PDF
+def extract_data_from_pdf(pdf_file):
+    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
 
-# Mapeamento de IDs de ligas para nomes usados nos pesos
-LEAGUE_MAPPING = {
-    13: "CONMEBOL Libertadores",
-    11: "CONMEBOL Sudamericana",
-    2: "UEFA Champions League",
-    848: "UEFA Europa Conference League",
-    3: "UEFA Europa League",
-    71: "Serie A (Brazil)",
-    72: "Serie B (Brazil)",
-    75: "Serie C (Brazil)",
-    128: "Liga Profesional Argentina",
-    73: "Copa do Brasil",
-    39: "Premier League",
-    140: "La Liga",
-    78: "Bundesliga",
-    135: "Serie A (Italy)",
-    61: "Ligue 1",
-    94: "Primeira Liga",
-    15: "FIFA Club World Cup"
-}
+    # Processa o texto para extrair a tabela
+    lines = text.split("\n")
+    data = []
+    for line in lines:
+        # Usa regex para capturar linhas da tabela
+        match = re.match(r"(\d+)\s+(.+?)\s+(\d+)\s*(.*)", line.strip())
+        if match:
+            rank, club_country, points, change = match.groups()
+            # Corrige erros comuns de OCR
+            club_country = club_country.replace("Italy", " Italy").replace("France", " France").replace("England", " England")
+            club_country = club_country.replace("Spain", " Spain").replace("Germany", " Germany").replace("Portugal", " Portugal")
+            club_country = club_country.replace("Netherlands", " Netherlands").replace("Turkey", " Turkey").replace("Brazil", " Brazil")
+            club_country = club_country.replace("markdown.", "Atlético Madrid Spain")
+            club_country = club_country.replace("Bérossia Dortmund", "Borussia Dortmund")
+            points = int(points)
+            data.append([rank, club_country, points, change])
+    
+    if data:
+        df = pd.DataFrame(data, columns=["Rank", "Club / Country", "Points", "1-yr change"])
+        return df
+    return None
+
+# Função para buscar o peso do time com base no rating Elo
+def get_team_weight(team_name, ratings_df):
+    if ratings_df is None:
+        return 0.8  # Peso padrão se não houver dados
+    # Remove o país do nome do time para facilitar a busca
+    team_row = ratings_df[ratings_df["Club / Country"].str.contains(team_name, case=False, na=False)]
+    if not team_row.empty:
+        elo = float(team_row["Points"].iloc[0])
+        return elo / 2100  # Normaliza pelo valor máximo (aproximado)
+    return 0.8  # Peso padrão se o time não for encontrado
 
 # Função para buscar times
 def search_team(team_name):
@@ -221,7 +215,7 @@ def get_team_leagues(team_id, season):
         return []
 
 # Função para calcular médias (feitas e sofridas) com número de partidas
-def calculate_averages(games, team_id, weights, season):
+def calculate_averages(games, team_id, season, team_weight):
     stats = {
         "goals_scored": [], "goals_conceded": [],
         "shots": [], "shots_conceded": [],
@@ -239,18 +233,6 @@ def calculate_averages(games, team_id, weights, season):
     }
     adjusted_values = {k: [] for k in stats.keys()}
     game_counts = {k: 0 for k in stats.keys()}
-    competition_weights = []
-
-    # Buscar todas as competições do time na temporada
-    leagues = get_team_leagues(team_id, season)
-    league_weights = []
-    for league in leagues:
-        league_id = league["league"]["id"]
-        mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
-        weight = weights.get(mapped_name, 0.5)
-        league_weights.append(weight)
-    # Usar o maior peso das competições
-    max_weight = max(league_weights) if league_weights else 0.5
 
     stat_mapping = {
         "total shots": "shots",
@@ -342,11 +324,6 @@ def calculate_averages(games, team_id, weights, season):
                         team_data["passes_missed_conceded"] = (value or 0) - (team_data["passes_accurate_conceded"] or 0)
                         stats_available["passes_missed_conceded"] = True
 
-        league_id = game["league"]["id"]
-        mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
-        weight = weights.get(mapped_name, 0.5)
-        competition_weights.append(weight)
-
         # Adicionar valores às listas e incrementar contadores apenas para estatísticas disponíveis
         for key in stats:
             stats[key].append(team_data[key])
@@ -357,13 +334,13 @@ def calculate_averages(games, team_id, weights, season):
 
         for key in adjusted_values:
             if "conceded" in key or "suffered" in key:
-                adjusted_values[key].append(team_data[key] / max(weight, 0.1))
+                adjusted_values[key].append(team_data[key] / max(team_weight, 0.1))
             else:
-                adjusted_values[key].append(team_data[key] * weight)
+                adjusted_values[key].append(team_data[key] * team_weight)
 
     simple_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in stats.items()}
     adjusted_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in adjusted_values.items()}
-    return simple_averages, adjusted_averages, game_counts, max_weight
+    return simple_averages, adjusted_averages, game_counts, team_weight
 
 # Função para prever estatísticas
 def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted, team_a_counts, team_b_counts, team_a_weight, team_b_weight):
@@ -593,15 +570,27 @@ def main():
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
-    st.subheader("Verificação da Chave da API")
-    if st.button("Testar Chave"):
-        if test_api_key():
-            st.success("Chave da API está funcionando!")
+    # Upload do PDF com ratings Elo
+    st.subheader("Carregar Ratings Elo dos Times")
+    pdf_file = st.file_uploader("Carregue o PDF com os ratings Elo (formato: Rank, Club / Country, Points, 1-yr change)", type="pdf")
+    if pdf_file:
+        ratings_df = extract_data_from_pdf(pdf_file)
+        if ratings_df is not None:
+            st.session_state["ratings_df"] = ratings_df
+            st.session_state["pdf_name"] = pdf_file.name
+            st.success("PDF carregado com sucesso!")
         else:
-            st.error("Chave da API inválida ou houve um erro.")
+            st.error("Não foi possível extrair dados do PDF. Verifique o formato.")
+    else:
+        st.warning("Por favor, carregue um PDF para definir os pesos dos times.")
 
-    weights = load_weights()
+    # Definir ratings_df padrão (None se não houver PDF carregado)
+    ratings_df = st.session_state.get("ratings_df", None)
+    pdf_name = st.session_state.get("pdf_name", "Nenhum PDF carregado")
+
+    # Adicionar aba "Home"
     tabs = st.tabs([
+        "Home",
         "Seleção de Times",
         "Jogos Analisados",
         "Médias",
@@ -612,6 +601,18 @@ def main():
     ])
 
     with tabs[0]:
+        st.header("Bem-vindo ao Prevelo")
+        st.write("Este aplicativo utiliza os ratings Elo para definir os pesos dos times.")
+        st.write(f"Fonte dos ratings: **{pdf_name}**")
+
+    with tabs[1]:
+        st.subheader("Verificação da Chave da API")
+        if st.button("Testar Chave"):
+            if test_api_key():
+                st.success("Chave da API está funcionando!")
+            else:
+                st.error("Chave da API inválida ou houve um erro.")
+
         col1, col2 = st.columns(2)
         with col1:
             team_a_name = st.text_input("Time A (Mandante)", placeholder="Digite o nome do time")
@@ -642,9 +643,14 @@ def main():
                 st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
                 st.session_state["season_a"] = season_a
                 st.session_state["season_b"] = season_b
-                st.success("Times selecionados com sucesso!")
+                # Calcular os pesos dos times com base no PDF
+                team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
+                team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
+                st.session_state["team_a_weight"] = team_a_weight
+                st.session_state["team_b_weight"] = team_b_weight
+                st.success(f"Times selecionados com sucesso! Pesos: {team_a_selected}: {team_a_weight:.2f}, {team_b_selected}: {team_b_weight:.2f}")
 
-    with tabs[1]:
+    with tabs[2]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
@@ -661,14 +667,11 @@ def main():
                     away_team = game["teams"]["away"]["name"]
                     home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
                     away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
-                    league_id = game["league"]["id"]
                     league_name = game["league"]["name"]
-                    mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
-                    weight = weights.get(mapped_name, 0.5)
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name}){title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}){title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -701,14 +704,11 @@ def main():
                     away_team = game["teams"]["away"]["name"]
                     home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
                     away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
-                    league_id = game["league"]["id"]
                     league_name = game["league"]["name"]
-                    mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
-                    weight = weights.get(mapped_name, 0.5)
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} (fator ponderação {weight:.2f} - {league_name}){title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}){title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -735,25 +735,25 @@ def main():
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
 
-    with tabs[2]:
+    with tabs[3]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state["season_a"]
             season_b = st.session_state["season_b"]
+            team_a_weight = st.session_state.get("team_a_weight", 0.8)
+            team_b_weight = st.session_state.get("team_b_weight", 0.8)
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a and games_b:
-                simple_a, adjusted_a, team_a_counts, team_a_weight = calculate_averages(games_a, team_a_id, weights, season_a)
-                simple_b, adjusted_b, team_b_counts, team_b_weight = calculate_averages(games_b, team_b_id, weights, season_b)
+                simple_a, adjusted_a, team_a_counts, _ = calculate_averages(games_a, team_a_id, season_a, team_a_weight)
+                simple_b, adjusted_b, team_b_counts, _ = calculate_averages(games_b, team_b_id, season_b, team_b_weight)
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
                 st.session_state["simple_b"] = simple_b
                 st.session_state["adjusted_b"] = adjusted_b
                 st.session_state["team_a_counts"] = team_a_counts
                 st.session_state["team_b_counts"] = team_b_counts
-                st.session_state["team_a_weight"] = team_a_weight
-                st.session_state["team_b_weight"] = team_b_weight
                 df_a = pd.DataFrame({
                     "Estatística": simple_a.keys(),
                     "Média Simples": [round(v, 1) for v in simple_a.values()],
@@ -768,22 +768,24 @@ def main():
                 })
                 st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
                 st.dataframe(df_a)
-                st.write(f"Fator de competição do Time A: {team_a_weight:.2f}")
+                st.write(f"Peso do Time A: {team_a_weight:.2f}")
                 st.write(f"Médias do Time B ({st.session_state['team_b']['team']['name']}):")
                 st.dataframe(df_b)
-                st.write(f"Fator de competição do Time B: {team_b_weight:.2f}")
+                st.write(f"Peso do Time B: {team_b_weight:.2f}")
             else:
                 st.warning("Não foi possível calcular médias. Verifique se há jogos finalizados na aba 'Jogos Analisados'.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para calcular as médias.")
 
-    with tabs[3]:
+    with tabs[4]:
         if "simple_a" in st.session_state:
+            team_a_weight = st.session_state.get("team_a_weight", 0.8)
+            team_b_weight = st.session_state.get("team_b_weight", 0.8)
             predicted_stats, confidence_intervals, predicted_counts, _ = predict_stats(
                 st.session_state["simple_a"], st.session_state["adjusted_a"],
                 st.session_state["simple_b"], st.session_state["adjusted_b"],
                 st.session_state["team_a_counts"], st.session_state["team_b_counts"],
-                st.session_state["team_a_weight"], st.session_state["team_b_weight"]
+                team_a_weight, team_b_weight
             )
             st.session_state["predicted_stats"] = predicted_stats
             st.session_state["confidence_intervals"] = confidence_intervals
@@ -806,13 +808,15 @@ def main():
         else:
             st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
 
-    with tabs[4]:
+    with tabs[5]:
         if "adjusted_a" in st.session_state:
+            team_a_weight = st.session_state.get("team_a_weight", 0.8)
+            team_b_weight = st.session_state.get("team_b_weight", 0.8)
             score_pred = predict_score(
                 st.session_state["adjusted_a"], 
                 st.session_state["adjusted_b"],
-                st.session_state["team_a_weight"], 
-                st.session_state["team_b_weight"],
+                team_a_weight, 
+                team_b_weight,
                 st.session_state["team_a"]["team"]["name"],
                 st.session_state["team_b"]["team"]["name"]
             )
@@ -829,7 +833,7 @@ def main():
         else:
             st.info("Calcule as médias na aba 'Médias' para prever o placar.")
 
-    with tabs[5]:
+    with tabs[6]:
         if "team_a" in st.session_state and "team_b" in st.session_state and "season_a" in st.session_state and "predicted_stats" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
@@ -849,7 +853,7 @@ def main():
         else:
             st.info("Selecione os times na aba 'Seleção de Times' e complete as previsões nas abas anteriores para comparar odds.")
 
-    with tabs[6]:
+    with tabs[7]:
         if "team_a" in st.session_state and "predicted_stats" in st.session_state and st.session_state["predicted_stats"]:
             if st.button("Exportar Resultados"):
                 filename = export_results(
