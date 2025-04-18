@@ -661,7 +661,7 @@ def main():
                 st.success(f"Times selecionados com sucesso! Pesos: {team_a_selected}: {st.session_state['team_a_weight']:.2f}, {team_b_selected}: {st.session_state['team_b_weight']:.2f}")
 
         with tabs[2]:
-        if "team_a" in st.session_state and "team_b" in st.session_state:
+            if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
             # Verifica se season_a e season_b estão no session_state, caso contrário usa um valor padrão
@@ -745,6 +745,8 @@ def main():
                 st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
+
+
 
     with tabs[3]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
