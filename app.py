@@ -47,32 +47,30 @@ def test_api_key():
 
 # Função para reformatar a coluna "Club / Country"
 def reformat_club_country(club_country):
-    # Lista de países conhecidos para facilitar a identificação
     countries = [
         "Italy", "France", "England", "Spain", "Germany", "Portugal", 
         "Netherlands", "Turkey", "Brazil", "Argentina", "Belgium", "Scotland"
     ]
-    
-    # Verifica se a string contém algum dos países conhecidos
     for country in countries:
         if club_country.endswith(country):
-            # Calcula o ponto onde o nome do time termina (antes do país)
             team_name = club_country[:len(club_country) - len(country)].strip()
             return f"{team_name} ({country})"
-    
-    # Caso o país não esteja na lista, retorna a string original
     return club_country
 
 # Função para buscar o peso do time com base no rating Elo
-def get_team_weight(team_name, ratings_df):
+def get_team_weight(team_name, ratings_df, manual_points=None):
+    if manual_points is not None:
+        # Se o usuário forneceu points manualmente, usa esse valor
+        points = float(manual_points)
+        return (points / 2000) ** 2  # Nova fórmula: (points/2000)^2
     if ratings_df is None:
-        return 0.8  # Peso padrão se não houver dados
+        return 0.8  # Peso padrão se não houver dados e nenhum valor manual
     # Remove o país do nome do time para facilitar a busca
     team_row = ratings_df[ratings_df["Club / Country"].str.contains(team_name, case=False, na=False)]
     if not team_row.empty:
-        elo = float(team_row["Points"].iloc[0])
-        return elo / 2100  # Normaliza pelo valor máximo (aproximado)
-    return 0.8  # Peso padrão se o time não for encontrado
+        points = float(team_row["Points"].iloc[0])
+        return (points / 2000) ** 2  # Nova fórmula: (points/2000)^2
+    return None  # Retorna None se não encontrado, para indicar que o usuário precisa inserir manualmente
 
 # Função para buscar times
 def search_team(team_name):
@@ -109,13 +107,11 @@ def get_team_games(team_id, season, home=True, limit=20):
         if response.status_code == 200:
             data = response.json()
             games = data.get("response", [])
-            # Filtrar jogos como mandante ou visitante
             filtered_games = [
                 game for game in games
                 if (home and game["teams"]["home"]["id"] == team_id) or
                    (not home and game["teams"]["away"]["id"] == team_id)
             ]
-            # Fallback para temporada anterior se não houver jogos
             if not filtered_games and season == 2025:
                 st.warning(f"Nenhum jogo finalizado encontrado para temporada {season}. Tentando temporada {season-1}...")
                 params["season"] = season - 1
@@ -144,7 +140,7 @@ def find_next_fixture(team_a_id, team_b_id, season):
     params = {
         "team": team_a_id,
         "season": season,
-        "next": 20  # Aumentar para buscar mais jogos futuros
+        "next": 20
     }
     try:
         response = requests.get(url, headers=HEADERS, params=params)
@@ -260,7 +256,7 @@ def calculate_averages(games, team_id, season, team_weight):
         team_data["goals_scored"] = game["goals"]["home" if is_home else "away"] or 0
         team_data["goals_conceded"] = game["goals"]["away" if is_home else "home"] or 0
 
-        stats_available = {k: False for k in stats.keys()}  # Rastreia se a estatística está disponível
+        stats_available = {k: False for k in stats.keys()}
 
         if game_stats:
             team_stats = next((s for s in game_stats if s["team"]["id"] == team_id), None)
@@ -311,7 +307,6 @@ def calculate_averages(games, team_id, season, team_weight):
                         team_data["passes_missed_conceded"] = (value or 0) - (team_data["passes_accurate_conceded"] or 0)
                         stats_available["passes_missed_conceded"] = True
 
-        # Adicionar valores às listas e incrementar contadores apenas para estatísticas disponíveis
         for key in stats:
             stats[key].append(team_data[key])
             if key in ["goals_scored", "goals_conceded"]:
@@ -388,7 +383,7 @@ def predict_score(team_a_adjusted, team_b_adjusted, team_a_weight, team_b_weight
     
     lambda_a = (team_a_adjusted["goals_scored"] + team_b_adjusted["goals_conceded"]) / max(team_b_weight, 0.1) / 2
     lambda_b = (team_b_adjusted["goals_scored"] + team_a_adjusted["goals_conceded"]) / max(team_a_weight, 0.1) / 2
-    max_goals = 6  # Limitar para 0 a 5 gols para visualização
+    max_goals = 6
     prob_matrix = np.zeros((max_goals, max_goals))
     for i in range(max_goals):
         for j in range(max_goals):
@@ -403,7 +398,6 @@ def predict_score(team_a_adjusted, team_b_adjusted, team_a_weight, team_b_weight
     total_goals = lambda_a + lambda_b
     over_2_5_prob = 1 - poisson.cdf(2, total_goals)
 
-    # Gerar heatmap da distribuição de Poisson
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(prob_matrix, annot=True, fmt=".3f", cmap="YlOrRd", 
                 xticklabels=range(max_goals), yticklabels=range(max_goals),
@@ -433,7 +427,7 @@ def get_odds(fixture_id):
     url = f"{API_BASE_URL}/odds"
     params = {
         "fixture": fixture_id,
-        "bet": "1"  # Mercado 1x2 (Vitória/Empate/Derrota)
+        "bet": "1"
     }
     try:
         response = requests.get(url, headers=HEADERS, params=params)
@@ -563,15 +557,12 @@ def main():
     if csv_file:
         try:
             ratings_df = pd.read_csv(csv_file)
-            # Verifica se as colunas esperadas estão presentes
             required_columns = ["Rank", "Club / Country", "Points", "1-yr change"]
             if all(col in ratings_df.columns for col in required_columns):
-                # Aplica a reformatação na coluna "Club / Country"
                 ratings_df["Club / Country"] = ratings_df["Club / Country"].apply(reformat_club_country)
                 st.session_state["ratings_df"] = ratings_df
                 st.session_state["csv_name"] = csv_file.name
                 st.success("CSV carregado com sucesso!")
-                # Exibe o DataFrame para verificação
                 st.write("Dados carregados do CSV:")
                 st.dataframe(ratings_df)
             else:
@@ -581,11 +572,9 @@ def main():
     else:
         st.warning("Por favor, carregue um CSV para definir os pesos dos times.")
 
-    # Definir ratings_df padrão (None se não houver CSV carregado)
     ratings_df = st.session_state.get("ratings_df", None)
     csv_name = st.session_state.get("csv_name", "Nenhum CSV carregado")
 
-    # Adicionar aba "Home"
     tabs = st.tabs([
         "Home",
         "Seleção de Times",
@@ -635,17 +624,41 @@ def main():
             team_b_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_b"]]
             team_a_selected = st.selectbox("Time A", team_a_options, key="team_a_select")
             team_b_selected = st.selectbox("Time B", team_b_options, key="team_b_select")
+
+            # Verificar os pesos dos times e permitir input manual
+            st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
+            st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
+            team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
+            team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
+
+            # Campos para input manual dos points
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if team_a_weight is None:
+                    st.warning(f"Pontos do {team_a_selected} não encontrados no CSV.")
+                    team_a_points = st.number_input(f"Insira os pontos Elo do {team_a_selected}", min_value=0, value=1600, step=1, key="team_a_points")
+                    st.session_state["team_a_points_manual"] = team_a_points
+                else:
+                    st.write(f"Pontos Elo do {team_a_selected} encontrados: {int((team_a_weight ** 0.5) * 2000)}")
+                    st.session_state["team_a_points_manual"] = None
+            with col_b:
+                if team_b_weight is None:
+                    st.warning(f"Pontos do {team_b_selected} não encontrados no CSV.")
+                    team_b_points = st.number_input(f"Insira os pontos Elo do {team_b_selected}", min_value=0, value=1600, step=1, key="team_b_points")
+                    st.session_state["team_b_points_manual"] = team_b_points
+                else:
+                    st.write(f"Pontos Elo do {team_b_selected} encontrados: {int((team_b_weight ** 0.5) * 2000)}")
+                    st.session_state["team_b_points_manual"] = None
+
             if st.button("Confirmar Seleção"):
-                st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
-                st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
                 st.session_state["season_a"] = season_a
                 st.session_state["season_b"] = season_b
-                # Calcular os pesos dos times com base no CSV
-                team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
-                team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
-                st.session_state["team_a_weight"] = team_a_weight
-                st.session_state["team_b_weight"] = team_b_weight
-                st.success(f"Times selecionados com sucesso! Pesos: {team_a_selected}: {team_a_weight:.2f}, {team_b_selected}: {team_b_weight:.2f}")
+                # Calcular os pesos com base nos pontos (manuais ou do CSV)
+                team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df, st.session_state.get("team_a_points_manual"))
+                team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df, st.session_state.get("team_b_points_manual"))
+                st.session_state["team_a_weight"] = team_a_weight if team_a_weight is not None else 0.8
+                st.session_state["team_b_weight"] = team_b_weight if team_b_weight is not None else 0.8
+                st.success(f"Times selecionados com sucesso! Pesos: {team_a_selected}: {st.session_state['team_a_weight']:.2f}, {team_b_selected}: {st.session_state['team_b_weight']:.2f}")
 
     with tabs[2]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
