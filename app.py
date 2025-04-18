@@ -660,12 +660,13 @@ def main():
                 st.session_state["team_b_weight"] = team_b_weight if team_b_weight is not None else 0.8
                 st.success(f"Times selecionados com sucesso! Pesos: {team_a_selected}: {st.session_state['team_a_weight']:.2f}, {team_b_selected}: {st.session_state['team_b_weight']:.2f}")
 
-    with tabs[2]:
+        with tabs[2]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
-            season_a = st.session_state["season_a"]
-            season_b = st.session_state["season_b"]
+            # Verifica se season_a e season_b estão no session_state, caso contrário usa um valor padrão
+            season_a = st.session_state.get("season_a", 2025)
+            season_b = st.session_state.get("season_b", 2025)
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a:
