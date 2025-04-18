@@ -11,8 +11,6 @@ from dotenv import load_dotenv
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
-import PyPDF2
-import re
 
 # Configurar logging para depuração (não será exibido na interface)
 logging.basicConfig(level=logging.DEBUG)
@@ -47,34 +45,23 @@ def test_api_key():
         st.error(f"Erro ao testar chave: {str(e)}")
         return False
 
-# Função para extrair dados do PDF
-def extract_data_from_pdf(pdf_file):
-    pdf_reader = PyPDF2.PdfReader(pdf_file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-
-    # Processa o texto para extrair a tabela
-    lines = text.split("\n")
-    data = []
-    for line in lines:
-        # Usa regex para capturar linhas da tabela
-        match = re.match(r"(\d+)\s+(.+?)\s+(\d+)\s*(.*)", line.strip())
-        if match:
-            rank, club_country, points, change = match.groups()
-            # Corrige erros comuns de OCR
-            club_country = club_country.replace("Italy", " Italy").replace("France", " France").replace("England", " England")
-            club_country = club_country.replace("Spain", " Spain").replace("Germany", " Germany").replace("Portugal", " Portugal")
-            club_country = club_country.replace("Netherlands", " Netherlands").replace("Turkey", " Turkey").replace("Brazil", " Brazil")
-            club_country = club_country.replace("markdown.", "Atlético Madrid Spain")
-            club_country = club_country.replace("Bérossia Dortmund", "Borussia Dortmund")
-            points = int(points)
-            data.append([rank, club_country, points, change])
+# Função para reformatar a coluna "Club / Country"
+def reformat_club_country(club_country):
+    # Lista de países conhecidos para facilitar a identificação
+    countries = [
+        "Italy", "France", "England", "Spain", "Germany", "Portugal", 
+        "Netherlands", "Turkey", "Brazil", "Argentina", "Belgium", "Scotland"
+    ]
     
-    if data:
-        df = pd.DataFrame(data, columns=["Rank", "Club / Country", "Points", "1-yr change"])
-        return df
-    return None
+    # Verifica se a string contém algum dos países conhecidos
+    for country in countries:
+        if club_country.endswith(country):
+            # Calcula o ponto onde o nome do time termina (antes do país)
+            team_name = club_country[:len(club_country) - len(country)].strip()
+            return f"{team_name} ({country})"
+    
+    # Caso o país não esteja na lista, retorna a string original
+    return club_country
 
 # Função para buscar o peso do time com base no rating Elo
 def get_team_weight(team_name, ratings_df):
@@ -570,23 +557,33 @@ def main():
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
-    # Upload do PDF com ratings Elo
+    # Upload do CSV com ratings Elo
     st.subheader("Carregar Ratings Elo dos Times")
-    pdf_file = st.file_uploader("Carregue o PDF com os ratings Elo (formato: Rank, Club / Country, Points, 1-yr change)", type="pdf")
-    if pdf_file:
-        ratings_df = extract_data_from_pdf(pdf_file)
-        if ratings_df is not None:
-            st.session_state["ratings_df"] = ratings_df
-            st.session_state["pdf_name"] = pdf_file.name
-            st.success("PDF carregado com sucesso!")
-        else:
-            st.error("Não foi possível extrair dados do PDF. Verifique o formato.")
+    csv_file = st.file_uploader("Carregue o CSV com os ratings Elo (formato: Rank, Club / Country, Points, 1-yr change)", type="csv")
+    if csv_file:
+        try:
+            ratings_df = pd.read_csv(csv_file)
+            # Verifica se as colunas esperadas estão presentes
+            required_columns = ["Rank", "Club / Country", "Points", "1-yr change"]
+            if all(col in ratings_df.columns for col in required_columns):
+                # Aplica a reformatação na coluna "Club / Country"
+                ratings_df["Club / Country"] = ratings_df["Club / Country"].apply(reformat_club_country)
+                st.session_state["ratings_df"] = ratings_df
+                st.session_state["csv_name"] = csv_file.name
+                st.success("CSV carregado com sucesso!")
+                # Exibe o DataFrame para verificação
+                st.write("Dados carregados do CSV:")
+                st.dataframe(ratings_df)
+            else:
+                st.error("O CSV não contém as colunas esperadas: Rank, Club / Country, Points, 1-yr change.")
+        except Exception as e:
+            st.error(f"Erro ao ler o CSV: {str(e)}")
     else:
-        st.warning("Por favor, carregue um PDF para definir os pesos dos times.")
+        st.warning("Por favor, carregue um CSV para definir os pesos dos times.")
 
-    # Definir ratings_df padrão (None se não houver PDF carregado)
+    # Definir ratings_df padrão (None se não houver CSV carregado)
     ratings_df = st.session_state.get("ratings_df", None)
-    pdf_name = st.session_state.get("pdf_name", "Nenhum PDF carregado")
+    csv_name = st.session_state.get("csv_name", "Nenhum CSV carregado")
 
     # Adicionar aba "Home"
     tabs = st.tabs([
@@ -603,7 +600,7 @@ def main():
     with tabs[0]:
         st.header("Bem-vindo ao Prevelo")
         st.write("Este aplicativo utiliza os ratings Elo para definir os pesos dos times.")
-        st.write(f"Fonte dos ratings: **{pdf_name}**")
+        st.write(f"Fonte dos ratings: **{csv_name}**")
 
     with tabs[1]:
         st.subheader("Verificação da Chave da API")
@@ -643,7 +640,7 @@ def main():
                 st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
                 st.session_state["season_a"] = season_a
                 st.session_state["season_b"] = season_b
-                # Calcular os pesos dos times com base no PDF
+                # Calcular os pesos dos times com base no CSV
                 team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
                 team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
                 st.session_state["team_a_weight"] = team_a_weight
