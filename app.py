@@ -9,6 +9,8 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Configurar logging para depuração (não será exibido na interface)
 logging.basicConfig(level=logging.DEBUG)
@@ -219,7 +221,7 @@ def get_team_leagues(team_id, season):
         return []
 
 # Função para calcular médias (feitas e sofridas) com número de partidas
-def calculate_averages(games, team_id, weights):
+def calculate_averages(games, team_id, weights, season):
     stats = {
         "goals_scored": [], "goals_conceded": [],
         "shots": [], "shots_conceded": [],
@@ -237,7 +239,18 @@ def calculate_averages(games, team_id, weights):
     }
     adjusted_values = {k: [] for k in stats.keys()}
     game_counts = {k: 0 for k in stats.keys()}
-    competition_weights = []  # Para calcular o fator médio de competição
+    competition_weights = []
+
+    # Buscar todas as competições do time na temporada
+    leagues = get_team_leagues(team_id, season)
+    league_weights = []
+    for league in leagues:
+        league_id = league["league"]["id"]
+        mapped_name = LEAGUE_MAPPING.get(league_id, "Outras ligas não mapeadas")
+        weight = weights.get(mapped_name, 0.5)
+        league_weights.append(weight)
+    # Usar o maior peso das competições
+    max_weight = max(league_weights) if league_weights else 0.5
 
     stat_mapping = {
         "total shots": "shots",
@@ -338,10 +351,8 @@ def calculate_averages(games, team_id, weights):
         for key in stats:
             stats[key].append(team_data[key])
             if key in ["goals_scored", "goals_conceded"]:
-                # Gols sempre têm valor, mesmo que 0
                 game_counts[key] += 1
             elif stats_available[key] and (has_stats_for_team or has_stats_for_opponent):
-                # Incrementar apenas se a estatística específica estiver disponível
                 game_counts[key] += 1
 
         for key in adjusted_values:
@@ -350,13 +361,11 @@ def calculate_averages(games, team_id, weights):
             else:
                 adjusted_values[key].append(team_data[key] * weight)
 
-    # Calcular médias, tratando listas vazias ou com apenas zeros
     simple_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in stats.items()}
     adjusted_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in adjusted_values.items()}
-    avg_competition_weight = np.mean(competition_weights) if competition_weights else 0.5
-    return simple_averages, adjusted_averages, game_counts, avg_competition_weight
+    return simple_averages, adjusted_averages, game_counts, max_weight
 
-# Função para prever estatísticas (usando feitas e sofridas)
+# Função para prever estatísticas
 def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted, team_a_counts, team_b_counts, team_a_weight, team_b_weight):
     if team_a_adjusted["goals_scored"] == 0 or team_b_adjusted["goals_scored"] == 0:
         st.warning("Não há dados suficientes de gols para previsões estatísticas confiáveis.")
@@ -366,7 +375,6 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     confidence_intervals = {}
     predicted_counts = {}
 
-    # Mapeamento explícito para estatísticas "feitas" e "sofridas"
     stat_pairs = {
         "goals_scored": "goals_conceded",
         "shots": "shots_conceded",
@@ -384,7 +392,6 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     }
 
     for stat in team_a_adjusted.keys():
-        # Determinar a estatística oposta
         if stat in stat_pairs:
             opposite_stat = stat_pairs[stat]
         elif stat in stat_pairs.values():
@@ -392,12 +399,10 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
         else:
             opposite_stat = stat
 
-        # Calcular previsões com os fatores de competição
         a_pred = ((team_a_adjusted[stat] / max(team_b_weight, 0.1)) + (team_b_adjusted[opposite_stat] * team_a_weight)) / 2
         b_pred = ((team_b_adjusted[stat] / max(team_a_weight, 0.1)) + (team_a_adjusted[opposite_stat] * team_b_weight)) / 2
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
 
-        # Calcular intervalos de confiança
         a_values = [team_a_adjusted[stat], team_b_adjusted[opposite_stat]]
         b_values = [team_b_adjusted[stat], team_a_adjusted[opposite_stat]]
         a_std = np.std(a_values) if len(a_values) > 1 and None not in a_values else 0
@@ -412,17 +417,19 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     return predicted_stats, confidence_intervals, predicted_counts, predicted_counts
 
 # Função para prever placar
-def predict_score(team_a_adjusted, team_b_adjusted):
+def predict_score(team_a_adjusted, team_b_adjusted, team_a_weight, team_b_weight, team_a_name, team_b_name):
     if team_a_adjusted["goals_scored"] == 0 or team_b_adjusted["goals_scored"] == 0:
         st.warning("Não há dados suficientes de gols para prever o placar.")
         return {"score": "N/A", "probs": {"win": 0, "draw": 0, "loss": 0}, "ci": {"team_a": (0, 0), "team_b": (0, 0)}, "total_goals_prob": 0}
-    lambda_a = (team_a_adjusted["goals_scored"] + team_b_adjusted["goals_conceded"]) * 1.2 / 2
-    lambda_b = (team_b_adjusted["goals_scored"] + team_a_adjusted["goals_conceded"]) / 1.2 / 2
-    max_goals = 10
+    
+    lambda_a = (team_a_adjusted["goals_scored"] + team_b_adjusted["goals_conceded"]) / max(team_b_weight, 0.1) / 2
+    lambda_b = (team_b_adjusted["goals_scored"] + team_a_adjusted["goals_conceded"]) / max(team_a_weight, 0.1) / 2
+    max_goals = 6  # Limitar para 0 a 5 gols para visualização
     prob_matrix = np.zeros((max_goals, max_goals))
     for i in range(max_goals):
         for j in range(max_goals):
             prob_matrix[i, j] = poisson.pmf(i, lambda_a) * poisson.pmf(j, lambda_b)
+    
     most_likely_score = np.unravel_index(np.argmax(prob_matrix), prob_matrix.shape)
     win_prob = np.sum(prob_matrix[np.where(np.arange(max_goals)[:, None] > np.arange(max_goals)[None, :])])
     draw_prob = np.sum(np.diag(prob_matrix))
@@ -431,6 +438,19 @@ def predict_score(team_a_adjusted, team_b_adjusted):
     ci_b = (poisson.ppf(0.075, lambda_b), poisson.ppf(0.925, lambda_b))
     total_goals = lambda_a + lambda_b
     over_2_5_prob = 1 - poisson.cdf(2, total_goals)
+
+    # Gerar heatmap da distribuição de Poisson
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(prob_matrix, annot=True, fmt=".3f", cmap="YlOrRd", 
+                xticklabels=range(max_goals), yticklabels=range(max_goals),
+                cbar_kws={'label': 'Probabilidade'})
+    ax.set_xlabel(f"Gols {team_b_name}")
+    ax.set_ylabel(f"Gols {team_a_name}")
+    ax.set_title("Distribuição de Probabilidade dos Placares")
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close()
+
     return {
         "score": f"{most_likely_score[0]} x {most_likely_score[1]}",
         "probs": {"win": win_prob, "draw": draw_prob, "loss": loss_prob},
@@ -724,8 +744,8 @@ def main():
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a and games_b:
-                simple_a, adjusted_a, team_a_counts, team_a_weight = calculate_averages(games_a, team_a_id, weights)
-                simple_b, adjusted_b, team_b_counts, team_b_weight = calculate_averages(games_b, team_b_id, weights)
+                simple_a, adjusted_a, team_a_counts, team_a_weight = calculate_averages(games_a, team_a_id, weights, season_a)
+                simple_b, adjusted_b, team_b_counts, team_b_weight = calculate_averages(games_b, team_b_id, weights, season_b)
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
                 st.session_state["simple_b"] = simple_b
@@ -748,10 +768,10 @@ def main():
                 })
                 st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
                 st.dataframe(df_a)
-                st.write(f"Fator médio de competição do Time A: {team_a_weight:.2f}")
+                st.write(f"Fator de competição do Time A: {team_a_weight:.2f}")
                 st.write(f"Médias do Time B ({st.session_state['team_b']['team']['name']}):")
                 st.dataframe(df_b)
-                st.write(f"Fator médio de competição do Time B: {team_b_weight:.2f}")
+                st.write(f"Fator de competição do Time B: {team_b_weight:.2f}")
             else:
                 st.warning("Não foi possível calcular médias. Verifique se há jogos finalizados na aba 'Jogos Analisados'.")
         else:
@@ -788,7 +808,14 @@ def main():
 
     with tabs[4]:
         if "adjusted_a" in st.session_state:
-            score_pred = predict_score(st.session_state["adjusted_a"], st.session_state["adjusted_b"])
+            score_pred = predict_score(
+                st.session_state["adjusted_a"], 
+                st.session_state["adjusted_b"],
+                st.session_state["team_a_weight"], 
+                st.session_state["team_b_weight"],
+                st.session_state["team_a"]["team"]["name"],
+                st.session_state["team_b"]["team"]["name"]
+            )
             st.session_state["score_pred"] = score_pred
             if score_pred["score"] != "N/A":
                 st.write(f"Placar mais provável: {score_pred['score']}")
@@ -831,7 +858,8 @@ def main():
                     st.session_state["simple_b"], st.session_state["adjusted_b"],
                     st.session_state["predicted_stats"], st.session_state["confidence_intervals"],
                     st.session_state["score_pred"], st.session_state["comparison_data"],
-                    st.session_state["team_a_counts"], st.session_state["team_b_counts"], st.session_state["predicted_counts"]
+                    st.session_state["team_a_counts"], st.session_state["team_b_counts"],
+                    st.session_state["predicted_counts"]
                 )
                 with open(filename, "rb") as f:
                     st.download_button("Baixar .xlsx", f, file_name=filename)
