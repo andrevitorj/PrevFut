@@ -70,7 +70,7 @@ def get_team_weight(team_name, ratings_df, manual_points=None):
     if not team_row.empty:
         points = float(team_row["Points"].iloc[0])
         return (points / 2000) ** 2  # Nova fórmula: (points/2000)^2
-    return None  # Retorna None se não encontrado, para indicar que o usuário precisa inserir manualmente
+    return None  # Retorna None se não encontrado
 
 # Função para buscar times
 def search_team(team_name):
@@ -198,7 +198,10 @@ def get_team_leagues(team_id, season):
         return []
 
 # Função para calcular médias (feitas e sofridas) com número de partidas
-def calculate_averages(games, team_id, season, team_weight):
+def calculate_averages(games, team_id, season, team_weight, opponent_weights=None):
+    if opponent_weights is None:
+        opponent_weights = {}
+
     stats = {
         "goals_scored": [], "goals_conceded": [],
         "shots": [], "shots_conceded": [],
@@ -255,6 +258,12 @@ def calculate_averages(games, team_id, season, team_weight):
         is_home = game["teams"]["home"]["id"] == team_id
         team_data["goals_scored"] = game["goals"]["home" if is_home else "away"] or 0
         team_data["goals_conceded"] = game["goals"]["away" if is_home else "home"] or 0
+
+        # Determinar o nome do adversário
+        opponent_name = game["teams"]["away"]["name"] if is_home else game["teams"]["home"]["name"]
+        # Obter o peso do adversário do session_state ou usar o padrão
+        fixture_id = str(game["fixture"]["id"])
+        opponent_weight = opponent_weights.get(fixture_id, 0.8)  # Peso padrão 0.8 se não ajustado
 
         stats_available = {k: False for k in stats.keys()}
 
@@ -316,9 +325,9 @@ def calculate_averages(games, team_id, season, team_weight):
 
         for key in adjusted_values:
             if "conceded" in key or "suffered" in key:
-                adjusted_values[key].append(team_data[key] / max(team_weight, 0.1))
+                adjusted_values[key].append(team_data[key] / max(opponent_weight, 0.1))
             else:
-                adjusted_values[key].append(team_data[key] * team_weight)
+                adjusted_values[key].append(team_data[key] * opponent_weight)
 
     simple_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in stats.items()}
     adjusted_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in adjusted_values.items()}
@@ -582,6 +591,12 @@ def main():
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
+    # Inicializar pesos dos adversários no session_state
+    if "opponent_weights_a" not in st.session_state:
+        st.session_state["opponent_weights_a"] = {}
+    if "opponent_weights_b" not in st.session_state:
+        st.session_state["opponent_weights_b"] = {}
+
     # Upload do CSV com ratings Elo
     st.subheader("Carregar Ratings Elo dos Times")
     csv_file = st.file_uploader("Carregue o CSV com os ratings Elo (formato: Rank, Club / Country, Points, 1-yr change)", type="csv")
@@ -659,49 +674,66 @@ def main():
             team_a_selected = st.selectbox("Time A", team_a_options, key="team_a_select")
             team_b_selected = st.selectbox("Time B", team_b_options, key="team_b_select")
 
-            # Verificar os pesos dos times e permitir input manual
+            # Selecionar os times
             st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
             st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
             team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
             team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
 
-            # Campos para input manual dos points
+            # Mostrar pesos iniciais e permitir ajuste
             col_a, col_b = st.columns(2)
             with col_a:
-                if team_a_weight is None:
-                    st.warning(f"Pontos do {team_a_selected} não encontrados no CSV.")
-                    team_a_points = st.number_input(f"Insira os pontos Elo do {team_a_selected}", min_value=0, value=1600, step=1, key="team_a_points")
-                    st.session_state["team_a_points_manual"] = team_a_points
-                else:
-                    st.write(f"Pontos Elo do {team_a_selected} encontrados: {int((team_a_weight ** 0.5) * 2000)}")
-                    st.session_state["team_a_points_manual"] = None
+                initial_weight_a = team_a_weight if team_a_weight is not None else 0.8
+                st.write(f"Peso inicial do {team_a_selected}: {initial_weight_a:.2f}")
+                team_a_weight_adjusted = st.number_input(
+                    f"Ajustar peso do {team_a_selected}",
+                    min_value=0.1,
+                    max_value=10.0,
+                    value=float(initial_weight_a),
+                    step=0.1,
+                    key="team_a_weight_adjusted"
+                )
+
             with col_b:
-                if team_b_weight is None:
-                    st.warning(f"Pontos do {team_b_selected} não encontrados no CSV.")
-                    team_b_points = st.number_input(f"Insira os pontos Elo do {team_b_selected}", min_value=0, value=1600, step=1, key="team_b_points")
-                    st.session_state["team_b_points_manual"] = team_b_points
-                else:
-                    st.write(f"Pontos Elo do {team_b_selected} encontrados: {int((team_b_weight ** 0.5) * 2000)}")
-                    st.session_state["team_b_points_manual"] = None
+                initial_weight_b = team_b_weight if team_b_weight is not None else 0.8
+                st.write(f"Peso inicial do {team_b_selected}: {initial_weight_b:.2f}")
+                team_b_weight_adjusted = st.number_input(
+                    f"Ajustar peso do {team_b_selected}",
+                    min_value=0.1,
+                    max_value=10.0,
+                    value=float(initial_weight_b),
+                    step=0.1,
+                    key="team_b_weight_adjusted"
+                )
 
             if st.button("Confirmar Seleção"):
-                # Calcular os pesos com base nos pontos (manuais ou do CSV)
-                team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df, st.session_state.get("team_a_points_manual"))
-                team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df, st.session_state.get("team_b_points_manual"))
-                st.session_state["team_a_weight"] = team_a_weight if team_a_weight is not None else 0.8
-                st.session_state["team_b_weight"] = team_b_weight if team_b_weight is not None else 0.8
-                st.success(f"Times selecionados com sucesso! Pesos: {team_a_selected}: {st.session_state['team_a_weight']:.2f}, {team_b_selected}: {st.session_state['team_b_weight']:.2f}")
+                # Usar os pesos ajustados pelo usuário
+                st.session_state["team_a_weight"] = team_a_weight_adjusted
+                st.session_state["team_b_weight"] = team_b_weight_adjusted
+                st.success(f"Times selecionados com sucesso! Pesos ajustados: {team_a_selected}: {st.session_state['team_a_weight']:.2f}, {team_b_selected}: {st.session_state['team_b_weight']:.2f}")
 
     with tabs[2]:
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
-            # Verifica se season_a e season_b estão no session_state, caso contrário usa um valor padrão
             season_a = st.session_state.get("season_a", 2025)
             season_b = st.session_state.get("season_b", 2025)
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             ratings_df = st.session_state.get("ratings_df", None)
+
+            # Botão no início da aba para recalcular
+            if (games_a or games_b) and st.button("Confirmar Pesos dos Adversários e Calcular Médias e Estatísticas"):
+                # Limpar estados anteriores relacionados a médias e previsões
+                for key in [
+                    "simple_a", "adjusted_a", "team_a_counts", "team_a_raw_stats", "team_a_raw_adjusted",
+                    "simple_b", "adjusted_b", "team_b_counts", "team_b_raw_stats", "team_b_raw_adjusted",
+                    "predicted_stats", "confidence_intervals", "predicted_counts", "score_pred", "comparison_data"
+                ]:
+                    if key in st.session_state:
+                        del st.session_state[key]
+
+                st.success("Médias e estatísticas foram recalculadas com os novos pesos. Verifique as abas 'Médias', 'Estatísticas Previstas' e 'Placar Provável'.")
 
             if games_a:
                 st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
@@ -716,15 +748,29 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
                     
-                    # Calcular o peso do adversário (Time B neste jogo)
+                    # Calcular o peso inicial do adversário (Time B neste jogo)
                     opponent_name = away_team
                     opponent_weight = get_team_weight(opponent_name, ratings_df)
                     if opponent_weight is None:
                         opponent_weight = 0.8  # Peso padrão se não encontrado
-                    weight_display = f"Peso Adversário: {opponent_weight:.2f}"
                     
+                    # Permitir ajuste do peso do adversário
+                    fixture_id = str(game["fixture"]["id"])
+                    if fixture_id not in st.session_state["opponent_weights_a"]:
+                        st.session_state["opponent_weights_a"][fixture_id] = opponent_weight
+
+                    opponent_weight_adjusted = st.number_input(
+                        f"Peso Adversário ({opponent_name})",
+                        min_value=0.1,
+                        max_value=10.0,
+                        value=float(st.session_state["opponent_weights_a"][fixture_id]),
+                        step=0.1,
+                        key=f"opponent_weight_a_{fixture_id}"
+                    )
+                    st.session_state["opponent_weights_a"][fixture_id] = opponent_weight_adjusted
+
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - {weight_display}{title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -762,15 +808,29 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
                     
-                    # Calcular o peso do adversário (Time A neste jogo)
+                    # Calcular o peso inicial do adversário (Time A neste jogo)
                     opponent_name = home_team
                     opponent_weight = get_team_weight(opponent_name, ratings_df)
                     if opponent_weight is None:
                         opponent_weight = 0.8  # Peso padrão se não encontrado
-                    weight_display = f"Peso Adversário: {opponent_weight:.2f}"
                     
+                    # Permitir ajuste do peso do adversário
+                    fixture_id = str(game["fixture"]["id"])
+                    if fixture_id not in st.session_state["opponent_weights_b"]:
+                        st.session_state["opponent_weights_b"][fixture_id] = opponent_weight
+
+                    opponent_weight_adjusted = st.number_input(
+                        f"Peso Adversário ({opponent_name})",
+                        min_value=0.1,
+                        max_value=10.0,
+                        value=float(st.session_state["opponent_weights_b"][fixture_id]),
+                        step=0.1,
+                        key=f"opponent_weight_b_{fixture_id}"
+                    )
+                    st.session_state["opponent_weights_b"][fixture_id] = opponent_weight_adjusted
+
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - {weight_display}{title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -794,6 +854,7 @@ def main():
                             st.write("Nenhuma estatística disponível para este jogo.")
             else:
                 st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
+
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
 
@@ -808,8 +869,12 @@ def main():
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a and games_b:
-                simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(games_a, team_a_id, season_a, team_a_weight)
-                simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(games_b, team_b_id, season_b, team_b_weight)
+                simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(
+                    games_a, team_a_id, season_a, team_a_weight, st.session_state["opponent_weights_a"]
+                )
+                simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(
+                    games_b, team_b_id, season_b, team_b_weight, st.session_state["opponent_weights_b"]
+                )
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
                 st.session_state["simple_b"] = simple_b
