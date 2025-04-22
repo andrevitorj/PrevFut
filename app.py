@@ -57,20 +57,21 @@ def reformat_club_country(club_country):
             return f"{team_name} ({country})"
     return club_country
 
-# Função para buscar o peso do time com base no rating Elo
-def get_team_weight(team_name, ratings_df, manual_points=None):
-    if manual_points is not None:
-        # Se o usuário forneceu points manualmente, usa esse valor
-        points = float(manual_points)
-        return (points / 2000) ** 2  # Nova fórmula: (points/2000)^2
+# Função para buscar os pontos Elo e calcular o peso
+def get_team_elo_and_weight(team_name, ratings_df):
     if ratings_df is None:
-        return 0.8  # Peso padrão se não houver dados e nenhum valor manual
+        return None, 0.8  # Pontos Elo não encontrados, peso padrão
     # Remove o país do nome do time para facilitar a busca
     team_row = ratings_df[ratings_df["Club / Country"].str.contains(team_name, case=False, na=False)]
     if not team_row.empty:
         points = float(team_row["Points"].iloc[0])
-        return (points / 2000) ** 2  # Nova fórmula: (points/2000)^2
-    return None  # Retorna None se não encontrado
+        weight = (points / 2000) ** 2  # Fórmula: (points/2000)^2
+        return points, weight
+    return None, 0.8  # Pontos Elo não encontrados, peso padrão
+
+# Função para calcular o peso a partir dos pontos Elo
+def calculate_weight_from_elo(points):
+    return (points / 2000) ** 2  # Fórmula: (points/2000)^2
 
 # Função para buscar times
 def search_team(team_name):
@@ -596,6 +597,11 @@ def main():
         st.session_state["opponent_weights_a"] = {}
     if "opponent_weights_b" not in st.session_state:
         st.session_state["opponent_weights_b"] = {}
+    # Inicializar pontos Elo dos adversários no session_state
+    if "opponent_elo_a" not in st.session_state:
+        st.session_state["opponent_elo_a"] = {}
+    if "opponent_elo_b" not in st.session_state:
+        st.session_state["opponent_elo_b"] = {}
 
     # Upload do CSV com ratings Elo
     st.subheader("Carregar Ratings Elo dos Times")
@@ -616,7 +622,7 @@ def main():
         except Exception as e:
             st.error(f"Erro ao ler o CSV: {str(e)}")
     else:
-        st.warning("Por favor, carregue um CSV para definir os pesos dos times.")
+        st.warning("Por favor, carregue um CSV para definir os pontos Elo dos times.")
 
     ratings_df = st.session_state.get("ratings_df", None)
     csv_name = st.session_state.get("csv_name", "Nenhum CSV carregado")
@@ -677,37 +683,47 @@ def main():
             # Selecionar os times
             st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
             st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
-            team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
-            team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
 
-            # Mostrar pesos iniciais e permitir ajuste
+            # Obter pontos Elo e peso iniciais
+            team_a_elo, team_a_weight = get_team_elo_and_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
+            team_b_elo, team_b_weight = get_team_elo_and_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
+
+            # Mostrar pontos Elo iniciais e permitir ajuste
             col_a, col_b = st.columns(2)
             with col_a:
-                initial_weight_a = team_a_weight if team_a_weight is not None else 0.8
-                st.write(f"Peso inicial do {team_a_selected}: {initial_weight_a:.2f}")
-                team_a_weight_adjusted = st.number_input(
-                    f"Ajustar peso do {team_a_selected}",
-                    min_value=0.1,
-                    max_value=10.0,
-                    value=float(initial_weight_a),
-                    step=0.1,
-                    key="team_a_weight_adjusted"
+                initial_elo_a = team_a_elo if team_a_elo is not None else 1600
+                if team_a_elo is None:
+                    st.warning(f"Pontos Elo não identificados para {team_a_selected}.")
+                st.write(f"Pontos Elo iniciais do {team_a_selected}: {initial_elo_a}")
+                team_a_elo_adjusted = st.number_input(
+                    f"Ajustar pontos Elo do {team_a_selected}",
+                    min_value=0,
+                    value=int(initial_elo_a),
+                    step=1,
+                    key="team_a_elo_adjusted"
                 )
+                team_a_weight_adjusted = calculate_weight_from_elo(team_a_elo_adjusted)
+                st.write(f"Peso calculado: {team_a_weight_adjusted:.2f}")
 
             with col_b:
-                initial_weight_b = team_b_weight if team_b_weight is not None else 0.8
-                st.write(f"Peso inicial do {team_b_selected}: {initial_weight_b:.2f}")
-                team_b_weight_adjusted = st.number_input(
-                    f"Ajustar peso do {team_b_selected}",
-                    min_value=0.1,
-                    max_value=10.0,
-                    value=float(initial_weight_b),
-                    step=0.1,
-                    key="team_b_weight_adjusted"
+                initial_elo_b = team_b_elo if team_b_elo is not None else 1600
+                if team_b_elo is None:
+                    st.warning(f"Pontos Elo não identificados para {team_b_selected}.")
+                st.write(f"Pontos Elo iniciais do {team_b_selected}: {initial_elo_b}")
+                team_b_elo_adjusted = st.number_input(
+                    f"Ajustar pontos Elo do {team_b_selected}",
+                    min_value=0,
+                    value=int(initial_elo_b),
+                    step=1,
+                    key="team_b_elo_adjusted"
                 )
+                team_b_weight_adjusted = calculate_weight_from_elo(team_b_elo_adjusted)
+                st.write(f"Peso calculado: {team_b_weight_adjusted:.2f}")
 
             if st.button("Confirmar Seleção"):
-                # Usar os pesos ajustados pelo usuário
+                # Armazenar os pontos Elo ajustados e os pesos calculados
+                st.session_state["team_a_elo"] = team_a_elo_adjusted
+                st.session_state["team_b_elo"] = team_b_elo_adjusted
                 st.session_state["team_a_weight"] = team_a_weight_adjusted
                 st.session_state["team_b_weight"] = team_b_weight_adjusted
                 st.success(f"Times selecionados com sucesso! Pesos ajustados: {team_a_selected}: {st.session_state['team_a_weight']:.2f}, {team_b_selected}: {st.session_state['team_b_weight']:.2f}")
@@ -748,25 +764,28 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
                     
-                    # Calcular o peso inicial do adversário (Time B neste jogo)
+                    # Obter pontos Elo e peso inicial do adversário (Time B neste jogo)
                     opponent_name = away_team
-                    opponent_weight = get_team_weight(opponent_name, ratings_df)
-                    if opponent_weight is None:
-                        opponent_weight = 0.8  # Peso padrão se não encontrado
+                    opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
                     
-                    # Permitir ajuste do peso do adversário
+                    # Permitir ajuste dos pontos Elo do adversário
                     fixture_id = str(game["fixture"]["id"])
-                    if fixture_id not in st.session_state["opponent_weights_a"]:
-                        st.session_state["opponent_weights_a"][fixture_id] = opponent_weight
+                    if fixture_id not in st.session_state["opponent_elo_a"]:
+                        st.session_state["opponent_elo_a"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
-                    opponent_weight_adjusted = st.number_input(
-                        f"Peso Adversário ({opponent_name})",
-                        min_value=0.1,
-                        max_value=10.0,
-                        value=float(st.session_state["opponent_weights_a"][fixture_id]),
-                        step=0.1,
-                        key=f"opponent_weight_a_{fixture_id}"
+                    # Aviso se pontos Elo não identificados
+                    if opponent_elo is None:
+                        st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
+
+                    opponent_elo_adjusted = st.number_input(
+                        f"Pontos Elo do Adversário ({opponent_name})",
+                        min_value=0,
+                        value=int(st.session_state["opponent_elo_a"][fixture_id]),
+                        step=1,
+                        key=f"opponent_elo_a_{fixture_id}"
                     )
+                    st.session_state["opponent_elo_a"][fixture_id] = opponent_elo_adjusted
+                    opponent_weight_adjusted = calculate_weight_from_elo(opponent_elo_adjusted)
                     st.session_state["opponent_weights_a"][fixture_id] = opponent_weight_adjusted
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
@@ -808,25 +827,28 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
                     
-                    # Calcular o peso inicial do adversário (Time A neste jogo)
+                    # Obter pontos Elo e peso inicial do adversário (Time A neste jogo)
                     opponent_name = home_team
-                    opponent_weight = get_team_weight(opponent_name, ratings_df)
-                    if opponent_weight is None:
-                        opponent_weight = 0.8  # Peso padrão se não encontrado
+                    opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
                     
-                    # Permitir ajuste do peso do adversário
+                    # Permitir ajuste dos pontos Elo do adversário
                     fixture_id = str(game["fixture"]["id"])
-                    if fixture_id not in st.session_state["opponent_weights_b"]:
-                        st.session_state["opponent_weights_b"][fixture_id] = opponent_weight
+                    if fixture_id not in st.session_state["opponent_elo_b"]:
+                        st.session_state["opponent_elo_b"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
-                    opponent_weight_adjusted = st.number_input(
-                        f"Peso Adversário ({opponent_name})",
-                        min_value=0.1,
-                        max_value=10.0,
-                        value=float(st.session_state["opponent_weights_b"][fixture_id]),
-                        step=0.1,
-                        key=f"opponent_weight_b_{fixture_id}"
+                    # Aviso se pontos Elo não identificados
+                    if opponent_elo is None:
+                        st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
+
+                    opponent_elo_adjusted = st.number_input(
+                        f"Pontos Elo do Adversário ({opponent_name})",
+                        min_value=0,
+                        value=int(st.session_state["opponent_elo_b"][fixture_id]),
+                        step=1,
+                        key=f"opponent_elo_b_{fixture_id}"
                     )
+                    st.session_state["opponent_elo_b"][fixture_id] = opponent_elo_adjusted
+                    opponent_weight_adjusted = calculate_weight_from_elo(opponent_elo_adjusted)
                     st.session_state["opponent_weights_b"][fixture_id] = opponent_weight_adjusted
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
