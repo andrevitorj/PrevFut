@@ -610,6 +610,9 @@ def main():
             if len(team_a_name) < 3 or len(team_b_name) < 3:
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
             else:
+                # Armazena season_a e season_b no session_state ao buscar os times
+                st.session_state["season_a"] = season_a
+                st.session_state["season_b"] = season_b
                 teams_a = search_team(team_a_name)
                 teams_b = search_team(team_b_name)
                 st.session_state["teams_a"] = teams_a
@@ -651,8 +654,6 @@ def main():
                     st.session_state["team_b_points_manual"] = None
 
             if st.button("Confirmar Seleção"):
-                st.session_state["season_a"] = season_a
-                st.session_state["season_b"] = season_b
                 # Calcular os pesos com base nos pontos (manuais ou do CSV)
                 team_a_weight = get_team_weight(st.session_state["team_a"]["team"]["name"], ratings_df, st.session_state.get("team_a_points_manual"))
                 team_b_weight = get_team_weight(st.session_state["team_b"]["team"]["name"], ratings_df, st.session_state.get("team_b_points_manual"))
@@ -664,8 +665,9 @@ def main():
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
-            season_a = st.session_state["season_a"]
-            season_b = st.session_state["season_b"]
+            # Verifica se season_a e season_b estão no session_state, caso contrário usa um valor padrão
+            season_a = st.session_state.get("season_a", 2025)
+            season_b = st.session_state.get("season_b", 2025)
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
             if games_a:
@@ -749,8 +751,8 @@ def main():
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
-            season_a = st.session_state["season_a"]
-            season_b = st.session_state["season_b"]
+            season_a = st.session_state.get("season_a", 2025)
+            season_b = st.session_state.get("season_b", 2025)
             team_a_weight = st.session_state.get("team_a_weight", 0.8)
             team_b_weight = st.session_state.get("team_b_weight", 0.8)
             games_a = get_team_games(team_a_id, season_a, home=True)
