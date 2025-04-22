@@ -244,7 +244,7 @@ def calculate_averages(games, team_id, season, team_weight):
         "passes": "passes_missed_conceded",
         "expected goals": "xga",
         "expected goals against": "xga",
-        "free_kicks": "free_kicks_conceded"
+        "free kicks": "free_kicks_conceded"
     }
 
     for game in games:
@@ -410,13 +410,16 @@ def predict_score(team_a_adjusted, team_b_adjusted, team_a_weight, team_b_weight
     total_goals = lambda_a + lambda_b
     over_2_5_prob = 1 - poisson.cdf(2, total_goals)
 
+    # Converter prob_matrix para percentual
+    prob_matrix_percent = prob_matrix * 100  # Multiplica por 100 para converter em percentual
+
     fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(prob_matrix, annot=True, fmt=".3f", cmap="YlOrRd", 
+    sns.heatmap(prob_matrix_percent, annot=True, fmt=".1f", cmap="YlOrRd", 
                 xticklabels=range(max_goals), yticklabels=range(max_goals),
-                cbar_kws={'label': 'Probabilidade'})
+                cbar_kws={'label': 'Probabilidade (%)'})
     ax.set_xlabel(f"Gols {team_b_name}")
     ax.set_ylabel(f"Gols {team_a_name}")
-    ax.set_title("Distribuição de Probabilidade dos Placares")
+    ax.set_title("Distribuição de Probabilidade dos Placares (%)")
     plt.tight_layout()
     st.pyplot(fig)
     plt.close()
@@ -436,25 +439,35 @@ def get_odds(fixture_id):
     if not fixture_id:
         st.warning("Não foi possível encontrar um jogo futuro entre os times selecionados para buscar odds.")
         return []
-    url = f"{API_BASE_URL}/odds"
-    params = {
-        "fixture": fixture_id,
-        "bet": "1"
-    }
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        logger.debug(f"Resposta da API para odds (fixture {fixture_id}): {response.status_code} - {response.text}")
-        if response.status_code == 200:
-            data = response.json()
-            odds = data.get("response", [])
-            if not odds:
-                st.warning("Nenhuma odd disponível para o jogo selecionado.")
-            return odds
-        st.error(f"Erro ao buscar odds: {response.status_code} - {response.text}")
-        return []
-    except Exception as e:
-        st.error(f"Erro ao buscar odds: {str(e)}")
-        return []
+
+    # Lista de mercados a buscar: Match Winner (1), Goals Over/Under (2), Both Teams To Score (8)
+    market_ids = [1, 2, 8]  # IDs correspondentes aos mercados
+    all_odds = []
+
+    for bet_id in market_ids:
+        url = f"{API_BASE_URL}/odds"
+        params = {
+            "fixture": fixture_id,
+            "bet": bet_id
+        }
+        try:
+            response = requests.get(url, headers=HEADERS, params=params)
+            logger.debug(f"Resposta da API para odds (fixture {fixture_id}, bet {bet_id}): {response.status_code} - {response.text}")
+            if response.status_code == 200:
+                data = response.json()
+                odds = data.get("response", [])
+                if odds:
+                    all_odds.extend(odds)
+                else:
+                    logger.debug(f"Nenhuma odd disponível para o mercado {bet_id} no fixture {fixture_id}")
+            else:
+                st.error(f"Erro ao buscar odds para mercado {bet_id}: {response.status_code} - {response.text}")
+        except Exception as e:
+            st.error(f"Erro ao buscar odds para mercado {bet_id}: {str(e)}")
+
+    if not all_odds:
+        st.warning("Nenhuma odd disponível para os mercados solicitados (Match Winner, Goals Over/Under, Both Teams To Score).")
+    return all_odds
 
 # Função para comparar odds e previsões
 def compare_odds(predicted_stats, score_pred, odds):
@@ -462,7 +475,8 @@ def compare_odds(predicted_stats, score_pred, odds):
         st.warning("Não há previsões válidas para comparar com odds.")
         return []
     if not odds:
-        st.warning("Nenhuma odd disponível para o jogo selecionado.")
+        # Já tratado em get_odds, mas mantemos por segurança
+        st.warning("Nenhuma odd disponível para comparação.")
         return []
 
     comparison_data = []
@@ -484,7 +498,7 @@ def compare_odds(predicted_stats, score_pred, odds):
                 for value in values:
                     odd = float(value.get("odd", 0))
                     if odd <= 0:
-                        continue
+                        continue  # Ignora odds inválidas
                     implied_prob = 1 / odd
                     predicted_prob = 0
                     if bet_name == "Match Winner":
@@ -505,14 +519,19 @@ def compare_odds(predicted_stats, score_pred, odds):
                         elif value.get("value") == "Under 2.5":
                             predicted_prob = under_2_5_prob
 
-                    comparison_data.append({
-                        "market": market_name,
-                        "bet": bet_name,
-                        "value": value.get("value", "Desconhecido"),
-                        "odd": odd,
-                        "implied_prob": implied_prob * 100,
-                        "predicted_prob": predicted_prob * 100
-                    })
+                    if predicted_prob > 0:  # Só adiciona se houver uma previsão válida
+                        comparison_data.append({
+                            "market": market_name,
+                            "bet": bet_name,
+                            "value": value.get("value", "Desconhecido"),
+                            "odd": odd,
+                            "implied_prob": implied_prob * 100,
+                            "predicted_prob": predicted_prob * 100
+                        })
+
+    if not comparison_data:
+        st.warning("Nenhuma odd válida para os mercados principais (Match Winner, Goals Over/Under, Both Teams To Score) foi encontrada ou os dados não atendem aos critérios de comparação.")
+        return []
 
     return comparison_data
 
@@ -682,6 +701,8 @@ def main():
             season_b = st.session_state.get("season_b", 2025)
             games_a = get_team_games(team_a_id, season_a, home=True)
             games_b = get_team_games(team_b_id, season_b, home=False)
+            ratings_df = st.session_state.get("ratings_df", None)
+
             if games_a:
                 st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
                 for game in games_a:
@@ -694,8 +715,16 @@ def main():
                     league_name = game["league"]["name"]
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
+                    
+                    # Calcular o peso do adversário (Time B neste jogo)
+                    opponent_name = away_team
+                    opponent_weight = get_team_weight(opponent_name, ratings_df)
+                    if opponent_weight is None:
+                        opponent_weight = 0.8  # Peso padrão se não encontrado
+                    weight_display = f"Peso Adversário: {opponent_weight:.2f}"
+                    
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}){title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - {weight_display}{title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -719,6 +748,7 @@ def main():
                             st.write("Nenhuma estatística disponível para este jogo.")
             else:
                 st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}. Tente outra temporada, como 2024.")
+            
             if games_b:
                 st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
                 for game in games_b:
@@ -731,8 +761,16 @@ def main():
                     league_name = game["league"]["name"]
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
+                    
+                    # Calcular o peso do adversário (Time A neste jogo)
+                    opponent_name = home_team
+                    opponent_weight = get_team_weight(opponent_name, ratings_df)
+                    if opponent_weight is None:
+                        opponent_weight = 0.8  # Peso padrão se não encontrado
+                    weight_display = f"Peso Adversário: {opponent_weight:.2f}"
+                    
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}){title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - {weight_display}{title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -879,7 +917,7 @@ def main():
                 df_odds["odd"] = df_odds["odd"].round(1)
                 st.dataframe(df_odds)
             else:
-                st.warning("Nenhuma odd disponível para os mercados principais ou os dados retornados não atendem aos critérios de comparação.")
+                st.warning("Nenhuma odd válida disponível para comparação nos mercados principais.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' e complete as previsões nas abas anteriores para comparar odds.")
 
