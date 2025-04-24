@@ -89,7 +89,7 @@ def search_team(team_name):
         
         if response.status_code == 200:
             data = response.json()
-            teams = data.get("response", [])
+            teams = data.get("response CUT", [])
             if teams:
                 return teams
             
@@ -179,7 +179,7 @@ def find_next_fixture(team_a_id, team_b_id, season):
             data = response.json()
             games = data.get("response", [])
             for game in games:
- favoriser if (game["teams"]["home"]["id"] == team_a_id and game["teams"]["away"]["id"] == team_b_id) or \
+                if (game["teams"]["home"]["id"] == team_a_id and game["teams"]["away"]["id"] == team_b_id) or \
                    (game["teams"]["home"]["id"] == team_b_id and game["teams"]["away"]["id"] == team_a_id):
                     fixture_id = game["fixture"]["id"]
                     logger.debug(f"Fixture encontrado: {fixture_id} para {team_a_id} vs {team_b_id}")
