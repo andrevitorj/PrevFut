@@ -12,7 +12,7 @@ import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Configurar logging para depuração
+# Configurar logging para depuração (não será exibido na interface)
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -61,58 +61,29 @@ def reformat_club_country(club_country):
 def get_team_elo_and_weight(team_name, ratings_df):
     if ratings_df is None:
         return None, 0.8  # Pontos Elo não encontrados, peso padrão
+    # Remove o país do nome do time para facilitar a busca
     team_row = ratings_df[ratings_df["Club / Country"].str.contains(team_name, case=False, na=False)]
     if not team_row.empty:
         points = float(team_row["Points"].iloc[0])
-        weight = (points / 2000) ** 2
+        weight = (points / 2000) ** 2  # Fórmula: (points/2000)^2
         return points, weight
-    return None, 0.8
+    return None, 0.8  # Pontos Elo não encontrados, peso padrão
 
 # Função para calcular o peso a partir dos pontos Elo
 def calculate_weight_from_elo(points):
-    return (points / 2000) ** 2
+    return (points / 2000) ** 2  # Fórmula: (points/2000)^2
 
-# Função para buscar times (modificada para melhorar a busca)
+# Função para buscar times
 def search_team(team_name):
     if not API_KEY:
         st.error("Chave da API não configurada.")
         return []
-
-    # Capitalizar o nome do time para consistência
-    team_name = team_name.strip().title()
     url = f"{API_BASE_URL}/teams"
     params = {"search": team_name}
-    
     try:
         response = requests.get(url, headers=HEADERS, params=params)
-        logger.debug(f"Busca por '{team_name}': Status {response.status_code}, Resposta: {response.text}")
-        
         if response.status_code == 200:
-            data = response.json()
-            teams = data.get("response CUT", [])
-            if teams:
-                return teams
-            
-            # Se não encontrar, tentar variações comuns do nome
-            variations = []
-            if "atletico" in team_name.lower():
-                variations = ["Atletico Madrid", "Atletico Mineiro"]
-            elif "rayo" in team_name.lower():
-                variations = ["Rayo Vallecano"]
-            
-            for variation in variations:
-                params["search"] = variation
-                response = requests.get(url, headers=HEADERS, params=params)
-                logger.debug(f"Busca por variação '{variation}': Status {response.status_code}, Resposta: {response.text}")
-                if response.status_code == 200:
-                    data = response.json()
-                    teams = data.get("response", [])
-                    if teams:
-                        return teams
-            
-            # Se ainda não encontrou, informar o usuário
-            st.warning(f"Nenhum time encontrado para '{team_name}'. Tente um nome mais específico (ex.: 'Atletico Madrid' ou 'Rayo Vallecano').")
-            return []
+            return response.json().get("response", [])
         else:
             st.error(f"Erro na API: {response.status_code} - {response.text}")
             return []
@@ -130,7 +101,7 @@ def get_team_games(team_id, season, home=True, limit=20):
         "team": team_id,
         "season": season,
         "last": limit,
-        "status": "FT"
+        "status": "FT"  # Apenas jogos finalizados
     }
     try:
         response = requests.get(url, headers=HEADERS, params=params)
@@ -289,8 +260,11 @@ def calculate_averages(games, team_id, season, team_weight, opponent_weights=Non
         team_data["goals_scored"] = game["goals"]["home" if is_home else "away"] or 0
         team_data["goals_conceded"] = game["goals"]["away" if is_home else "home"] or 0
 
+        # Determinar o nome do adversário
+        opponent_name = game["teams"]["away"]["name"] if is_home else game["teams"]["home"]["name"]
+        # Obter o peso do adversário do session_state ou usar o padrão
         fixture_id = str(game["fixture"]["id"])
-        opponent_weight = opponent_weights.get(fixture_id, 0.8)
+        opponent_weight = opponent_weights.get(fixture_id, 0.8)  # Peso padrão 0.8 se não ajustado
 
         stats_available = {k: False for k in stats.keys()}
 
@@ -360,7 +334,7 @@ def calculate_averages(games, team_id, season, team_weight, opponent_weights=Non
     adjusted_averages = {k: np.mean(v[:game_counts[k]]) if game_counts[k] > 0 else 0 for k, v in adjusted_values.items()}
     return simple_averages, adjusted_averages, game_counts, team_weight, stats, adjusted_values
 
-# Função para prever estatísticas
+# Função para prever estatísticas (modificada para calcular apenas estatísticas favoráveis)
 def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted, team_a_counts, team_b_counts, team_a_weight, team_b_weight):
     if team_a_adjusted["goals_scored"] == 0 or team_b_adjusted["goals_scored"] == 0:
         st.warning("Não há dados suficientes de gols para previsões estatísticas confiáveis.")
@@ -370,6 +344,7 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     confidence_intervals = {}
     predicted_counts = {}
 
+    # Apenas estatísticas favoráveis
     favorable_stats = ["goals_scored", "shots", "shots_on_target", "corners", "possession", "offsides", "fouls_committed", "yellow_cards", "red_cards", "passes_accurate", "passes_missed", "xg", "free_kicks"]
     
     stat_pairs = {
@@ -391,21 +366,27 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     for stat in favorable_stats:
         opposite_stat = stat_pairs[stat]
         
+        # Previsão para Time A
         a_pred = (team_a_adjusted[stat] + team_b_adjusted[opposite_stat]) / (2 * team_b_weight)
+        # Previsão para Time B
         b_pred = (team_b_adjusted[stat] + team_a_adjusted[opposite_stat]) / (2 * team_a_weight)
         
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
 
+        # Aproximação para intervalo de confiança usando Poisson para gols
+        # Número de partidas combinado
         count = (team_a_counts[stat] + team_b_counts[opposite_stat]) // 2
         
+        # Desvio padrão aproximado (usando Poisson para gols, ou média para outras stats)
         if stat == "goals_scored":
-            std_a = np.sqrt(a_pred)
+            std_a = np.sqrt(a_pred)  # Aproximação Poisson
             std_b = np.sqrt(b_pred)
         else:
-            std_a = a_pred / 2
+            # Para outras estatísticas, usamos uma aproximação simples (não temos dados brutos)
+            std_a = a_pred / 2  # Aproximação arbitrária
             std_b = b_pred / 2
         
-        z = norm.ppf(0.925)
+        z = norm.ppf(0.925)  # Para 85% de confiança
         error_a = std_a / np.sqrt(count) if count > 0 else 0
         error_b = std_b / np.sqrt(count) if count > 0 else 0
         
@@ -440,7 +421,8 @@ def predict_score(team_a_adjusted, team_b_adjusted, team_a_weight, team_b_weight
     total_goals = lambda_a + lambda_b
     over_2_5_prob = 1 - poisson.cdf(2, total_goals)
 
-    prob_matrix_percent = prob_matrix * 100
+    # Converter prob_matrix para percentual
+    prob_matrix_percent = prob_matrix * 100  # Multiplica por 100 para converter em percentual
 
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(prob_matrix_percent, annot=True, fmt=".1f", cmap="YlOrRd", 
@@ -469,7 +451,8 @@ def get_odds(fixture_id):
         st.warning("Não foi possível encontrar um jogo futuro entre os times selecionados para buscar odds.")
         return []
 
-    market_ids = [1, 2, 8]
+    # Lista de mercados a buscar: Match Winner (1), Goals Over/Under (2), Both Teams To Score (8)
+    market_ids = [1, 2, 8]  # IDs correspondentes aos mercados
     all_odds = []
 
     for bet_id in market_ids:
@@ -503,6 +486,7 @@ def compare_odds(predicted_stats, score_pred, odds):
         st.warning("Não há previsões válidas para comparar com odds.")
         return []
     if not odds:
+        # Já tratado em get_odds, mas mantemos por segurança
         st.warning("Nenhuma odd disponível para comparação.")
         return []
 
@@ -525,7 +509,7 @@ def compare_odds(predicted_stats, score_pred, odds):
                 for value in values:
                     odd = float(value.get("odd", 0))
                     if odd <= 0:
-                        continue
+                        continue  # Ignora odds inválidas
                     implied_prob = 1 / odd
                     predicted_prob = 0
                     if bet_name == "Match Winner":
@@ -546,7 +530,7 @@ def compare_odds(predicted_stats, score_pred, odds):
                         elif value.get("value") == "Under 2.5":
                             predicted_prob = under_2_5_prob
 
-                    if predicted_prob > 0:
+                    if predicted_prob > 0:  # Só adiciona se houver uma previsão válida
                         comparison_data.append({
                             "market": market_name,
                             "bet": bet_name,
@@ -569,15 +553,16 @@ def export_results(team_a, team_b, simple_a, adjusted_a, simple_b, adjusted_b, p
     ws.title = "Médias"
     ws.append(["Time", "Estatística", "Média Simples", "IC 85%", "Média Ajustada", "Nº Partidas"])
     
-    z = norm.ppf(0.925)
+    z = norm.ppf(0.925)  # Para 85% de confiança
     for stat in simple_a.keys():
+        # Aproximação de IC 85% para média simples usando Poisson para gols
         mean_a = simple_a[stat]
         mean_b = simple_b[stat]
         if stat == "goals_scored" or stat == "goals_conceded":
             std_a = np.sqrt(mean_a)
             std_b = np.sqrt(mean_b)
         else:
-            std_a = mean_a / 2
+            std_a = mean_a / 2  # Aproximação arbitrária
             std_b = mean_b / 2
         error_a = std_a / np.sqrt(team_a_counts[stat]) if team_a_counts[stat] > 0 else 0
         error_b = std_b / np.sqrt(team_b_counts[stat]) if team_b_counts[stat] > 0 else 0
@@ -625,15 +610,18 @@ def main():
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
+    # Inicializar pesos dos adversários no session_state
     if "opponent_weights_a" not in st.session_state:
         st.session_state["opponent_weights_a"] = {}
     if "opponent_weights_b" not in st.session_state:
         st.session_state["opponent_weights_b"] = {}
+    # Inicializar pontos Elo dos adversários no session_state
     if "opponent_elo_a" not in st.session_state:
         st.session_state["opponent_elo_a"] = {}
     if "opponent_elo_b" not in st.session_state:
         st.session_state["opponent_elo_b"] = {}
 
+    # Upload do CSV com ratings Elo
     st.subheader("Carregar Ratings Elo dos Times")
     csv_file = st.file_uploader("Carregue o CSV com os ratings Elo (formato: Rank, Club / Country, Points, 1-yr change)", type="csv")
     if csv_file:
@@ -692,6 +680,7 @@ def main():
             if len(team_a_name) < 3 or len(team_b_name) < 3:
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
             else:
+                # Armazena season_a e season_b no session_state ao buscar os times
                 st.session_state["season_a"] = season_a
                 st.session_state["season_b"] = season_b
                 teams_a = search_team(team_a_name)
@@ -709,12 +698,15 @@ def main():
             team_a_selected = st.selectbox("Time A", team_a_options, key="team_a_select")
             team_b_selected = st.selectbox("Time B", team_b_options, key="team_b_select")
 
+            # Selecionar os times
             st.session_state["team_a"] = next(t for t in st.session_state["teams_a"] if f"{t['team']['name']} ({t['team']['country']})" == team_a_selected)
             st.session_state["team_b"] = next(t for t in st.session_state["teams_b"] if f"{t['team']['name']} ({t['team']['country']})" == team_b_selected)
 
+            # Obter pontos Elo e peso iniciais
             team_a_elo, team_a_weight = get_team_elo_and_weight(st.session_state["team_a"]["team"]["name"], ratings_df)
             team_b_elo, team_b_weight = get_team_elo_and_weight(st.session_state["team_b"]["team"]["name"], ratings_df)
 
+            # Mostrar pontos Elo iniciais e permitir ajuste
             col_a, col_b = st.columns(2)
             with col_a:
                 initial_elo_a = team_a_elo if team_a_elo is not None else 1600
@@ -747,6 +739,7 @@ def main():
                 st.write(f"Peso calculado: {team_b_weight_adjusted:.2f}")
 
             if st.button("Confirmar Seleção"):
+                # Armazenar os pontos Elo ajustados e os pesos calculados
                 st.session_state["team_a_elo"] = team_a_elo_adjusted
                 st.session_state["team_b_elo"] = team_b_elo_adjusted
                 st.session_state["team_a_weight"] = team_a_weight_adjusted
@@ -763,7 +756,9 @@ def main():
             games_b = get_team_games(team_b_id, season_b, home=False)
             ratings_df = st.session_state.get("ratings_df", None)
 
+            # Botão no início da aba para recalcular
             if (games_a or games_b) and st.button("Confirmar Pesos dos Adversários e Calcular Médias e Estatísticas"):
+                # Limpar estados anteriores relacionados a médias e previsões
                 for key in [
                     "simple_a", "adjusted_a", "team_a_counts", "team_a_raw_stats", "team_a_raw_adjusted",
                     "simple_b", "adjusted_b", "team_b_counts", "team_b_raw_stats", "team_b_raw_adjusted",
@@ -787,13 +782,16 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
                     
+                    # Obter pontos Elo e peso inicial do adversário (Time B neste jogo)
                     opponent_name = away_team
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
                     
+                    # Permitir ajuste dos pontos Elo do adversário
                     fixture_id = str(game["fixture"]["id"])
                     if fixture_id not in st.session_state["opponent_elo_a"]:
                         st.session_state["opponent_elo_a"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
+                    # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
                         st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
 
@@ -847,13 +845,16 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
                     
+                    # Obter pontos Elo e peso inicial do adversário (Time A neste jogo)
                     opponent_name = home_team
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
                     
+                    # Permitir ajuste dos pontos Elo do adversário
                     fixture_id = str(game["fixture"]["id"])
                     if fixture_id not in st.session_state["opponent_elo_b"]:
                         st.session_state["opponent_elo_b"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
+                    # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
                         st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
 
@@ -925,7 +926,8 @@ def main():
                 st.session_state["team_b_raw_stats"] = team_b_raw_stats
                 st.session_state["team_b_raw_adjusted"] = team_b_raw_adjusted
 
-                z = norm.ppf(0.925)
+                # Calcular IC 85% para médias simples
+                z = norm.ppf(0.925)  # Para 85% de confiança
                 ic_a = {}
                 ic_b = {}
                 for stat in simple_a.keys():
@@ -935,7 +937,7 @@ def main():
                         std_a = np.sqrt(mean_a)
                         std_b = np.sqrt(mean_b)
                     else:
-                        std_a = mean_a / 2
+                        std_a = mean_a / 2  # Aproximação
                         std_b = mean_b / 2
                     error_a = std_a / np.sqrt(team_a_counts[stat]) if team_a_counts[stat] > 0 else 0
                     error_b = std_b / np.sqrt(team_b_counts[stat]) if team_b_counts[stat] > 0 else 0
