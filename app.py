@@ -366,10 +366,17 @@ def predict_stats(team_a_simple, team_a_adjusted, team_b_simple, team_b_adjusted
     for stat in favorable_stats:
         opposite_stat = stat_pairs[stat]
         
-        # Previsão para Time A
-        a_pred = (team_a_adjusted[stat] + team_b_adjusted[opposite_stat]) / (2 * team_b_weight)
-        # Previsão para Time B
-        b_pred = (team_b_adjusted[stat] + team_a_adjusted[opposite_stat]) / (2 * team_a_weight)
+                # Previsão para Time A com a nova fórmula
+        if team_a_weight != 0:  # Evitar divisão por zero
+            a_pred = (team_a_adjusted[stat] + team_b_adjusted[opposite_stat]) / (2 * (team_b_weight / team_a_weight))
+        else:
+            a_pred = (team_a_adjusted[stat] + team_b_adjusted[opposite_stat]) / 2  # Caso team_a_weight seja 0, evita erro
+
+        # Previsão para Time B com a nova fórmula
+        if team_b_weight != 0:  # Evitar divisão por zero
+            b_pred = (team_b_adjusted[stat] + team_a_adjusted[opposite_stat]) / (2 * (team_a_weight / team_b_weight))
+        else:
+            b_pred = (team_b_adjusted[stat] + team_a_adjusted[opposite_stat]) / 2  # Caso team_b_weight seja 0, evita erro
         
         predicted_stats[stat] = {"team_a": a_pred, "team_b": b_pred}
 
