@@ -99,51 +99,57 @@ def get_team_games(team_id, season, home=True, limit=10, neutral=False):
 
     url = f"{API_BASE_URL}/fixtures"
     headers = {"X-RapidAPI-Key": API_KEY}
-    
+
     total_games = []
     season_to_check = season
+    tentativas = 0
 
-    while len(total_games) < limit and season_to_check >= 2000:
+    while len(total_games) < limit and season_to_check >= 2000 and tentativas < 5:
         params = {
             "team": team_id,
             "season": season_to_check,
             "status": "FT",
-            "last": 100
+            "limit": 50  # força a API a não cortar prematuramente
         }
+
         try:
             response = requests.get(url, headers=headers, params=params)
             if response.status_code == 200:
                 data = response.json()
                 games = data.get("response", [])
 
-                if not neutral:
+                # filtro condicional
+                if neutral:
+                    filtered_games = games
+                else:
                     filtered_games = [
                         game for game in games
                         if (home and game["teams"]["home"]["id"] == team_id) or
                            (not home and game["teams"]["away"]["id"] == team_id)
                     ]
-                else:
-                    filtered_games = games
 
-                # Apenas adiciona novos jogos que ainda não estavam na lista (evita duplicata)
-                new_games = [
-                    g for g in filtered_games
-                    if g["fixture"]["id"] not in {x["fixture"]["id"] for x in total_games}
-                ]
+                # evitar duplicação
+                existing_ids = {g["fixture"]["id"] for g in total_games}
+                new_games = [g for g in filtered_games if g["fixture"]["id"] not in existing_ids]
+
                 total_games.extend(new_games)
 
                 if len(total_games) >= limit:
                     break
-
-                season_to_check -= 1
+                else:
+                    season_to_check -= 1
+                    tentativas += 1
             else:
-                st.warning(f"Erro ao buscar jogos da temporada {season_to_check}: {response.status_code}")
+                st.warning(f"Erro na temporada {season_to_check}: {response.status_code}")
                 season_to_check -= 1
+                tentativas += 1
+
         except Exception as e:
-            st.warning(f"Erro ao buscar jogos: {str(e)}")
+            st.warning(f"Erro ao buscar jogos: {e}")
             break
 
     return total_games[:limit]
+
 
 
 
