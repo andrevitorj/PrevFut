@@ -92,7 +92,7 @@ def search_team(team_name):
         return []
 
 # Função para buscar jogos passados
-def get_team_games(team_id, season, home=True, limit=20):
+def get_team_games(team_id, season, home=True, limit=20, neutral=False):
     if not API_KEY:
         st.error("Chave da API não configurada.")
         return []
@@ -108,18 +108,22 @@ def get_team_games(team_id, season, home=True, limit=20):
         if response.status_code == 200:
             data = response.json()
             games = data.get("response", [])
+            if neutral:
+                return games  # retorna todos os jogos
             filtered_games = [
                 game for game in games
                 if (home and game["teams"]["home"]["id"] == team_id) or
                    (not home and game["teams"]["away"]["id"] == team_id)
             ]
             if not filtered_games and season == 2025:
-                st.warning(f"Nenhum jogo finalizado encontrado para temporada {season}. Tentando temporada {season-1}...")
+                st.warning(f"Nenhum jogo encontrado para temporada {season}. Tentando temporada {season-1}...")
                 params["season"] = season - 1
                 response = requests.get(url, headers=HEADERS, params=params)
                 if response.status_code == 200:
                     data = response.json()
                     games = data.get("response", [])
+                    if neutral:
+                        return games
                     filtered_games = [
                         game for game in games
                         if (home and game["teams"]["home"]["id"] == team_id) or
@@ -131,6 +135,7 @@ def get_team_games(team_id, season, home=True, limit=20):
     except Exception as e:
         st.error(f"Erro ao buscar jogos: {str(e)}")
         return []
+
 
 # Função para buscar o próximo jogo entre dois times
 def find_next_fixture(team_a_id, team_b_id, season):
@@ -763,8 +768,20 @@ def main():
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state.get("season_a", 2025)
             season_b = st.session_state.get("season_b", 2025)
-            games_a = get_team_games(team_a_id, season_a, home=not st.session_state.get("campo_neutro", False))
-            games_b = get_team_games(team_b_id, season_b, home=not st.session_state.get("campo_neutro", False))
+            games_a = get_team_games(
+                team_a_id,
+                season_a,
+                home=True,
+                neutral=st.session_state.get("campo_neutro", False)
+            )
+
+            games_b = get_team_games(
+                team_b_id,
+                season_b,
+                home=False,
+                neutral=st.session_state.get("campo_neutro", False)
+            )
+
             ratings_df = st.session_state.get("ratings_df", None)
 
             # Botão no início da aba para recalcular
@@ -917,8 +934,20 @@ def main():
             season_b = st.session_state.get("season_b", 2025)
             team_a_weight = st.session_state.get("team_a_weight", 0.8)
             team_b_weight = st.session_state.get("team_b_weight", 0.8)
-            games_a = get_team_games(team_a_id, season_a, home=not st.session_state.get("campo_neutro", False))
-            games_b = get_team_games(team_b_id, season_b, home=not st.session_state.get("campo_neutro", False))
+            games_a = get_team_games(
+                team_a_id,
+                season_a,
+                home=True,
+                neutral=st.session_state.get("campo_neutro", False)
+            )
+
+            games_b = get_team_games(
+                team_b_id,
+                season_b,
+                home=False,
+                neutral=st.session_state.get("campo_neutro", False)
+            )
+
             if games_a and games_b:
                 simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(
                     games_a, team_a_id, season_a, team_a_weight, st.session_state["opponent_weights_a"]
