@@ -92,57 +92,49 @@ def search_team(team_name):
         return []
 
 # Função para buscar jogos passados
-def get_team_games(team_id, season, home=True, limit=10, neutral=False):
+def get_team_games(team_id, season, home=True, limit=20, neutral=False):
     if not API_KEY:
         st.error("Chave da API não configurada.")
         return []
-
     url = f"{API_BASE_URL}/fixtures"
-    headers = {"X-RapidAPI-Key": API_KEY}
-    
-    total_games = []
-    season_to_check = season
-
-    while len(total_games) < limit and season_to_check >= 2000:
-        params = {
-            "team": team_id,
-            "season": season_to_check,
-            "status": "FT",
-            "last": 100
-        }
-        try:
-            response = requests.get(url, headers=headers, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                games = data.get("response", [])
-
-                if not neutral:
+    params = {
+        "team": team_id,
+        "season": season,
+        "last": limit,
+        "status": "FT"  # Apenas jogos finalizados
+    }
+    try:
+        response = requests.get(url, headers=HEADERS, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            games = data.get("response", [])
+            if neutral:
+                return games  # retorna todos os jogos
+            filtered_games = [
+                game for game in games
+                if (home and game["teams"]["home"]["id"] == team_id) or
+                   (not home and game["teams"]["away"]["id"] == team_id)
+            ]
+            if not filtered_games and season == 2025:
+                st.warning(f"Nenhum jogo encontrado para temporada {season}. Tentando temporada {season-1}...")
+                params["season"] = season - 1
+                response = requests.get(url, headers=HEADERS, params=params)
+                if response.status_code == 200:
+                    data = response.json()
+                    games = data.get("response", [])
+                    if neutral:
+                        return games
                     filtered_games = [
                         game for game in games
                         if (home and game["teams"]["home"]["id"] == team_id) or
                            (not home and game["teams"]["away"]["id"] == team_id)
                     ]
-                else:
-                    filtered_games = games
-
-                total_games += filtered_games
-
-                # Só para de buscar se atingir o limite solicitado
-                if len(total_games) >= limit:
-                    break
-
-                # Continua buscando na temporada anterior
-                season_to_check -= 1
-            else:
-                st.warning(f"Erro ao buscar jogos da temporada {season_to_check}: {response.status_code}")
-                season_to_check -= 1
-        except Exception as e:
-            st.warning(f"Erro ao buscar jogos: {str(e)}")
-            break
-
-    return total_games[:limit]
-
-
+            return filtered_games
+        st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Erro ao buscar jogos: {str(e)}")
+        return []
 
 
 # Função para buscar o próximo jogo entre dois times
@@ -699,10 +691,6 @@ def main():
 
         campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
         st.session_state["campo_neutro"] = campo_neutro
-        
-        # Definir número de jogos a buscar
-        num_jogos = st.number_input("Número de jogos a analisar por time", min_value=1, max_value=20, value=10, step=1)
-        st.session_state["num_jogos"] = num_jogos
 
         if st.button("Buscar Times"):
             if len(team_a_name) < 3 or len(team_b_name) < 3:
@@ -784,21 +772,15 @@ def main():
                 team_a_id,
                 season_a,
                 home=True,
-                limit=st.session_state["num_jogos"],
-                neutral=st.session_state["campo_neutro"]
+                neutral=st.session_state.get("campo_neutro", False)
             )
-
-
 
             games_b = get_team_games(
                 team_b_id,
                 season_b,
                 home=False,
-                limit=st.session_state["num_jogos"],
-                neutral=st.session_state["campo_neutro"]
+                neutral=st.session_state.get("campo_neutro", False)
             )
-
-
 
             ratings_df = st.session_state.get("ratings_df", None)
 
