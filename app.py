@@ -678,11 +678,15 @@ def main():
 
         col1, col2 = st.columns(2)
         with col1:
-            team_a_name = st.text_input("Time A (Mandante)", placeholder="Digite o nome do time")
+            team_a_name = st.text_input("Time A", placeholder="Digite o nome do time A")
             season_a = st.selectbox("Temporada Time A", list(range(2020, 2026)), index=5)
         with col2:
-            team_b_name = st.text_input("Time B (Visitante)", placeholder="Digite o nome do time")
+            team_b_name = st.text_input("Time B", placeholder="Digite o nome do time B")
             season_b = st.selectbox("Temporada Time B", list(range(2020, 2026)), index=5)
+
+        campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
+        st.session_state["campo_neutro"] = campo_neutro
+
         if st.button("Buscar Times"):
             if len(team_a_name) < 3 or len(team_b_name) < 3:
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
@@ -759,8 +763,8 @@ def main():
             team_b_id = st.session_state["team_b"]["team"]["id"]
             season_a = st.session_state.get("season_a", 2025)
             season_b = st.session_state.get("season_b", 2025)
-            games_a = get_team_games(team_a_id, season_a, home=True)
-            games_b = get_team_games(team_b_id, season_b, home=False)
+            games_a = get_team_games(team_a_id, season_a, home=not st.session_state.get("campo_neutro", False))
+            games_b = get_team_games(team_b_id, season_b, home=not st.session_state.get("campo_neutro", False))
             ratings_df = st.session_state.get("ratings_df", None)
 
             # Botão no início da aba para recalcular
@@ -913,8 +917,8 @@ def main():
             season_b = st.session_state.get("season_b", 2025)
             team_a_weight = st.session_state.get("team_a_weight", 0.8)
             team_b_weight = st.session_state.get("team_b_weight", 0.8)
-            games_a = get_team_games(team_a_id, season_a, home=True)
-            games_b = get_team_games(team_b_id, season_b, home=False)
+            games_a = get_team_games(team_a_id, season_a, home=not st.session_state.get("campo_neutro", False))
+            games_b = get_team_games(team_b_id, season_b, home=not st.session_state.get("campo_neutro", False))
             if games_a and games_b:
                 simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(
                     games_a, team_a_id, season_a, team_a_weight, st.session_state["opponent_weights_a"]
