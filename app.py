@@ -810,9 +810,13 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
                     
-                    # Obter pontos Elo e peso inicial do adversário (Time B neste jogo)
-                    opponent_name = away_team
+                    # Corrigir se Time A for mandante ou visitante neste jogo
+                    if game["teams"]["home"]["id"] == team_a_id:
+                        opponent_name = game["teams"]["away"]["name"]
+                    else:
+                        opponent_name = game["teams"]["home"]["name"]
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
+
                     
                     # Permitir ajuste dos pontos Elo do adversário
                     fixture_id = str(game["fixture"]["id"])
@@ -873,9 +877,13 @@ def main():
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
                     
-                    # Obter pontos Elo e peso inicial do adversário (Time A neste jogo)
-                    opponent_name = home_team
+                    # Corrigir se Time B for mandante ou visitante neste jogo
+                    if game["teams"]["home"]["id"] == team_b_id:
+                        opponent_name = game["teams"]["away"]["name"]
+                    else:
+                        opponent_name = game["teams"]["home"]["name"]
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
+
                     
                     # Permitir ajuste dos pontos Elo do adversário
                     fixture_id = str(game["fixture"]["id"])
