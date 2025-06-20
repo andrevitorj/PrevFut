@@ -957,31 +957,35 @@ def main():
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
-            season_a = st.session_state.get("season_a", 2025)
-            season_b = st.session_state.get("season_b", 2025)
+            seasons_a = st.session_state.get("seasons_a", [2025])
+            seasons_b = st.session_state.get("seasons_b", [2025])
             team_a_weight = st.session_state.get("team_a_weight", 0.8)
             team_b_weight = st.session_state.get("team_b_weight", 0.8)
+
             games_a = get_team_games(
                 team_a_id,
-                season_a,
+                seasons_a,
                 home=True,
+                limit=st.session_state.get("num_jogos", 10),
                 neutral=st.session_state.get("campo_neutro", False)
             )
 
             games_b = get_team_games(
                 team_b_id,
-                season_b,
+                seasons_b,
                 home=False,
+                limit=st.session_state.get("num_jogos", 10),
                 neutral=st.session_state.get("campo_neutro", False)
             )
 
             if games_a and games_b:
                 simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(
-                    games_a, team_a_id, season_a, team_a_weight, st.session_state["opponent_weights_a"]
+                    games_a, team_a_id, seasons_a[-1], team_a_weight, st.session_state["opponent_weights_a"]
                 )
                 simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(
-                    games_b, team_b_id, season_b, team_b_weight, st.session_state["opponent_weights_b"]
+                    games_b, team_b_id, seasons_b[-1], team_b_weight, st.session_state["opponent_weights_b"]
                 )
+
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
                 st.session_state["simple_b"] = simple_b
@@ -994,18 +998,12 @@ def main():
                 st.session_state["team_b_raw_adjusted"] = team_b_raw_adjusted
 
                 # Calcular IC 85% para médias simples
-                z = norm.ppf(0.925)  # Para 85% de confiança
-                ic_a = {}
-                ic_b = {}
-                for stat in simple_a.keys():
-                    mean_a = simple_a[stat]
-                    mean_b = simple_b[stat]
-                    if stat == "goals_scored" or stat == "goals_conceded":
-                        std_a = np.sqrt(mean_a)
-                        std_b = np.sqrt(mean_b)
-                    else:
-                        std_a = mean_a / 2  # Aproximação
-                        std_b = mean_b / 2
+                z = norm.ppf(0.925)
+                ic_a, ic_b = {}, {}
+                for stat in simple_a:
+                    mean_a, mean_b = simple_a[stat], simple_b[stat]
+                    std_a = np.sqrt(mean_a) if stat in ["goals_scored", "goals_conceded"] else mean_a / 2
+                    std_b = np.sqrt(mean_b) if stat in ["goals_scored", "goals_conceded"] else mean_b / 2
                     error_a = std_a / np.sqrt(team_a_counts[stat]) if team_a_counts[stat] > 0 else 0
                     error_b = std_b / np.sqrt(team_b_counts[stat]) if team_b_counts[stat] > 0 else 0
                     ic_a[stat] = (max(0, mean_a - z * error_a), mean_a + z * error_a)
@@ -1014,17 +1012,19 @@ def main():
                 df_a = pd.DataFrame({
                     "Estatística": simple_a.keys(),
                     "Média Simples": [round(v, 1) for v in simple_a.values()],
-                    "IC 85%": [f"[{round(ic_a[k][0], 1)}, {round(ic_a[k][1], 1)}]" for k in simple_a.keys()],
+                    "IC 85%": [f"[{round(ic_a[k][0], 1)}, {round(ic_a[k][1], 1)}]" for k in simple_a],
                     "Média Ajustada": [round(v, 1) for v in adjusted_a.values()],
-                    "Nº Partidas": [team_a_counts[k] for k in simple_a.keys()]
+                    "Nº Partidas": [team_a_counts[k] for k in simple_a]
                 })
+
                 df_b = pd.DataFrame({
                     "Estatística": simple_b.keys(),
                     "Média Simples": [round(v, 1) for v in simple_b.values()],
-                    "IC 85%": [f"[{round(ic_b[k][0], 1)}, {round(ic_b[k][1], 1)}]" for k in simple_b.keys()],
+                    "IC 85%": [f"[{round(ic_b[k][0], 1)}, {round(ic_b[k][1], 1)}]" for k in simple_b],
                     "Média Ajustada": [round(v, 1) for v in adjusted_b.values()],
-                    "Nº Partidas": [team_b_counts[k] for k in simple_b.keys()]
+                    "Nº Partidas": [team_b_counts[k] for k in simple_b]
                 })
+
                 st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
                 st.dataframe(df_a)
                 st.write(f"Peso do Time A: {team_a_weight:.2f}")
@@ -1035,6 +1035,7 @@ def main():
                 st.warning("Não foi possível calcular médias. Verifique se há jogos finalizados na aba 'Jogos Analisados'.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para calcular as médias.")
+
 
     with tabs[4]:
         if "simple_a" in st.session_state:
