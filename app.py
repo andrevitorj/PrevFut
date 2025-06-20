@@ -814,33 +814,30 @@ def main():
 
                 st.success("Médias e estatísticas foram recalculadas com os novos pesos. Verifique as abas 'Médias', 'Estatísticas Previstas' e 'Placar Provável'.")
 
-            if games_a:
-                st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
+            if games_a and len(games_a) > 0:
+                st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']}): {len(games_a)} jogos encontrados")
                 for game in games_a:
                     game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
                     formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
                     home_team = game["teams"]["home"]["name"]
                     away_team = game["teams"]["away"]["name"]
-                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
-                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    home_goals = game["goals"]["home"] or 0
+                    away_goals = game["goals"]["away"] or 0
                     league_name = game["league"]["name"]
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
-                    
-                    # Corrigir se Time A for mandante ou visitante neste jogo
+
                     if game["teams"]["home"]["id"] == team_a_id:
                         opponent_name = game["teams"]["away"]["name"]
                     else:
                         opponent_name = game["teams"]["home"]["name"]
-                    opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
 
-                    
-                    # Permitir ajuste dos pontos Elo do adversário
+                    opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
                     fixture_id = str(game["fixture"]["id"])
+
                     if fixture_id not in st.session_state["opponent_elo_a"]:
                         st.session_state["opponent_elo_a"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
-                    # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
                         st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
 
@@ -857,6 +854,7 @@ def main():
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
                     title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
+
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -865,8 +863,7 @@ def main():
                                     for s in stat["statistics"]:
                                         value = s["value"]
                                         if s["type"].lower() == "ball possession" and isinstance(value, str):
-                                            value = value.replace("%", "").strip()
-                                            value = float(value) if value else 0.0
+                                            value = float(value.replace("%", "").strip() or 0.0)
                                         else:
                                             try:
                                                 value = float(value) if value is not None else 0.0
@@ -879,35 +876,33 @@ def main():
                         else:
                             st.write("Nenhuma estatística disponível para este jogo.")
             else:
-                st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}. Tente outra temporada, como 2024.")
+                st.warning(f"Nenhum jogo encontrado para o Time A ({st.session_state['team_a']['team']['name']}), mesmo após buscar temporadas anteriores.")
+
             
-            if games_b:
-                st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
+            if games_b and len(games_b) > 0:
+                st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']}): {len(games_b)} jogos encontrados")
                 for game in games_b:
                     game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
                     formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
                     home_team = game["teams"]["home"]["name"]
                     away_team = game["teams"]["away"]["name"]
-                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
-                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
+                    home_goals = game["goals"]["home"] or 0
+                    away_goals = game["goals"]["away"] or 0
                     league_name = game["league"]["name"]
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
-                    
-                    # Corrigir se Time B for mandante ou visitante neste jogo
+
                     if game["teams"]["home"]["id"] == team_b_id:
                         opponent_name = game["teams"]["away"]["name"]
                     else:
                         opponent_name = game["teams"]["home"]["name"]
-                    opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
 
-                    
-                    # Permitir ajuste dos pontos Elo do adversário
+                    opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
                     fixture_id = str(game["fixture"]["id"])
+
                     if fixture_id not in st.session_state["opponent_elo_b"]:
                         st.session_state["opponent_elo_b"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
-                    # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
                         st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
 
@@ -924,6 +919,7 @@ def main():
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
                     title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
+
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -932,8 +928,7 @@ def main():
                                     for s in stat["statistics"]:
                                         value = s["value"]
                                         if s["type"].lower() == "ball possession" and isinstance(value, str):
-                                            value = value.replace("%", "").strip()
-                                            value = float(value) if value else 0.0
+                                            value = float(value.replace("%", "").strip() or 0.0)
                                         else:
                                             try:
                                                 value = float(value) if value is not None else 0.0
@@ -946,7 +941,8 @@ def main():
                         else:
                             st.write("Nenhuma estatística disponível para este jogo.")
             else:
-                st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
+                st.warning(f"Nenhum jogo encontrado para o Time B ({st.session_state['team_b']['team']['name']}), mesmo após buscar temporadas anteriores.")
+
 
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
