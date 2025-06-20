@@ -92,64 +92,50 @@ def search_team(team_name):
         return []
 
 # Função para buscar jogos passados
-def get_team_games(team_id, season, home=True, limit=10, neutral=False):
+def get_team_games(team_id, seasons, home=True, limit=20, neutral=False):
+    """
+    Busca os jogos mais recentes de um time, em múltiplas temporadas,
+    até atingir o limite desejado.
+    """
     if not API_KEY:
         st.error("Chave da API não configurada.")
         return []
 
-    url = f"{API_BASE_URL}/fixtures"
-    headers = {"X-RapidAPI-Key": API_KEY}
-
-    total_games = []
-    season_to_check = season
-    tentativas = 0
-
-    while len(total_games) < limit and season_to_check >= 2000 and tentativas < 5:
+    all_games = []
+    for season in seasons:
+        url = f"{API_BASE_URL}/fixtures"
         params = {
             "team": team_id,
-            "season": season_to_check,
-            "status": "FT",
-            "limit": 50  # força a API a não cortar prematuramente
+            "season": season,
+            "status": "FT",  # Apenas jogos finalizados
+            "last": limit  # Solicita os mais recentes, será filtrado depois
         }
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=HEADERS, params=params)
             if response.status_code == 200:
                 data = response.json()
                 games = data.get("response", [])
 
-                # filtro condicional
-                if neutral:
-                    filtered_games = games
-                else:
-                    filtered_games = [
+                if not neutral:
+                    games = [
                         game for game in games
-                        if (home and game["teams"]["home"]["id"] == team_id) or
-                           (not home and game["teams"]["away"]["id"] == team_id)
+                        if (home and game["teams"]["home"]["id"] == team_id)
+                        or (not home and game["teams"]["away"]["id"] == team_id)
                     ]
 
-                # evitar duplicação
-                existing_ids = {g["fixture"]["id"] for g in total_games}
-                new_games = [g for g in filtered_games if g["fixture"]["id"] not in existing_ids]
+                all_games.extend(games)
 
-                total_games.extend(new_games)
-
-                if len(total_games) >= limit:
-                    break
-                else:
-                    season_to_check -= 1
-                    tentativas += 1
+                if len(all_games) >= limit:
+                    break  # Já temos jogos suficientes
             else:
-                st.warning(f"Erro na temporada {season_to_check}: {response.status_code}")
-                season_to_check -= 1
-                tentativas += 1
-
+                st.warning(f"Erro ao buscar jogos para temporada {season}: {response.status_code}")
         except Exception as e:
-            st.warning(f"Erro ao buscar jogos: {e}")
-            break
+            st.error(f"Erro ao buscar jogos para temporada {season}: {str(e)}")
 
-    return total_games[:limit]
-
+    # Ordena os jogos por data (mais recentes primeiro)
+    all_games.sort(key=lambda g: g["fixture"]["date"], reverse=True)
+    return all_games[:limit]
 
 
 
@@ -700,16 +686,21 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             team_a_name = st.text_input("Time A", placeholder="Digite o nome do time A")
-            season_a = st.selectbox("Temporada Time A", list(range(2020, 2026)), index=5)
+            seasons_a = st.multiselect("Temporadas Time A", list(range(2020, 2026))[::-1], default=[2025])
         with col2:
             team_b_name = st.text_input("Time B", placeholder="Digite o nome do time B")
-            season_b = st.selectbox("Temporada Time B", list(range(2020, 2026)), index=5)
+            seasons_b = st.multiselect("Temporadas Time B", list(range(2020, 2026))[::-1], default=[2025])
 
         campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
         st.session_state["campo_neutro"] = campo_neutro
 
         num_jogos = st.number_input("Número de jogos a analisar por time", min_value=1, max_value=20, value=10, step=1)
+
+        # Armazenar parâmetros no session_state
+        st.session_state["seasons_a"] = seasons_a
+        st.session_state["seasons_b"] = seasons_b
         st.session_state["num_jogos"] = num_jogos
+
 
 
         if st.button("Buscar Times"):
@@ -717,16 +708,19 @@ def main():
                 st.error("O nome do time deve ter pelo menos 3 caracteres.")
             else:
                 # Armazena season_a e season_b no session_state ao buscar os times
-                st.session_state["season_a"] = season_a
-                st.session_state["season_b"] = season_b
                 teams_a = search_team(team_a_name)
                 teams_b = search_team(team_b_name)
                 st.session_state["teams_a"] = teams_a
                 st.session_state["teams_b"] = teams_b
+                st.session_state["seasons_a"] = seasons_a
+                st.session_state["seasons_b"] = seasons_b
+                st.session_state["num_games"] = num_games
+
                 if not teams_a:
                     st.error("Nenhum time encontrado para o Time A.")
                 if not teams_b:
                     st.error("Nenhum time encontrado para o Time B.")
+                    
         if "teams_a" in st.session_state and "teams_b" in st.session_state and st.session_state["teams_a"] and st.session_state["teams_b"]:
             st.subheader("Selecione os Times")
             team_a_options = [f"{t['team']['name']} ({t['team']['country']})" for t in st.session_state["teams_a"]]
@@ -786,21 +780,23 @@ def main():
         if "team_a" in st.session_state and "team_b" in st.session_state:
             team_a_id = st.session_state["team_a"]["team"]["id"]
             team_b_id = st.session_state["team_b"]["team"]["id"]
-            season_a = st.session_state.get("season_a", 2025)
-            season_b = st.session_state.get("season_b", 2025)
+            seasons_a = st.session_state.get("seasons_a", [2025])
+            seasons_b = st.session_state.get("seasons_b", [2025])
+            num_jogos = st.session_state.get("num_jogos", 10)
+
             games_a = get_team_games(
-                team_a_id,
-                season_a,
+                team_id=team_a_id,
+                seasons=seasons_a,
                 home=True,
-                limit=st.session_state.get("num_jogos", 10),
+                limit=num_jogos,
                 neutral=st.session_state.get("campo_neutro", False)
             )
 
             games_b = get_team_games(
-                team_b_id,
-                season_b,
+                team_id=team_b_id,
+                seasons=seasons_b,
                 home=False,
-                limit=st.session_state.get("num_jogos", 10),
+                limit=num_jogos,
                 neutral=st.session_state.get("campo_neutro", False)
             )
 
@@ -820,30 +816,33 @@ def main():
 
                 st.success("Médias e estatísticas foram recalculadas com os novos pesos. Verifique as abas 'Médias', 'Estatísticas Previstas' e 'Placar Provável'.")
 
-            if games_a and len(games_a) > 0:
-                st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']}): {len(games_a)} jogos encontrados")
+            if games_a:
+                st.write(f"Jogos do Time A ({st.session_state['team_a']['team']['name']} - Mandante):")
                 for game in games_a:
                     game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
                     formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
                     home_team = game["teams"]["home"]["name"]
                     away_team = game["teams"]["away"]["name"]
-                    home_goals = game["goals"]["home"] or 0
-                    away_goals = game["goals"]["away"] or 0
+                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
+                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
                     league_name = game["league"]["name"]
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_a_id for stat in stats))
-
+                    
+                    # Corrigir se Time A for mandante ou visitante neste jogo
                     if game["teams"]["home"]["id"] == team_a_id:
                         opponent_name = game["teams"]["away"]["name"]
                     else:
                         opponent_name = game["teams"]["home"]["name"]
-
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
-                    fixture_id = str(game["fixture"]["id"])
 
+                    
+                    # Permitir ajuste dos pontos Elo do adversário
+                    fixture_id = str(game["fixture"]["id"])
                     if fixture_id not in st.session_state["opponent_elo_a"]:
                         st.session_state["opponent_elo_a"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
+                    # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
                         st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
 
@@ -860,7 +859,6 @@ def main():
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
                     title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
-
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -869,7 +867,8 @@ def main():
                                     for s in stat["statistics"]:
                                         value = s["value"]
                                         if s["type"].lower() == "ball possession" and isinstance(value, str):
-                                            value = float(value.replace("%", "").strip() or 0.0)
+                                            value = value.replace("%", "").strip()
+                                            value = float(value) if value else 0.0
                                         else:
                                             try:
                                                 value = float(value) if value is not None else 0.0
@@ -882,33 +881,35 @@ def main():
                         else:
                             st.write("Nenhuma estatística disponível para este jogo.")
             else:
-                st.warning(f"Nenhum jogo encontrado para o Time A ({st.session_state['team_a']['team']['name']}), mesmo após buscar temporadas anteriores.")
-
+                st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_a']['team']['name']} na temporada {season_a}. Tente outra temporada, como 2024.")
             
-            if games_b and len(games_b) > 0:
-                st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']}): {len(games_b)} jogos encontrados")
+            if games_b:
+                st.write(f"Jogos do Time B ({st.session_state['team_b']['team']['name']} - Visitante):")
                 for game in games_b:
                     game_date = datetime.strptime(game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S+00:00")
                     formatted_date = game_date.strftime("%d/%m/%Y %H:%M")
                     home_team = game["teams"]["home"]["name"]
                     away_team = game["teams"]["away"]["name"]
-                    home_goals = game["goals"]["home"] or 0
-                    away_goals = game["goals"]["away"] or 0
+                    home_goals = game["goals"]["home"] if game["goals"]["home"] is not None else 0
+                    away_goals = game["goals"]["away"] if game["goals"]["away"] is not None else 0
                     league_name = game["league"]["name"]
                     stats = get_game_stats(game["fixture"]["id"])
                     has_stats = bool(stats and any(stat["team"]["id"] == team_b_id for stat in stats))
-
+                    
+                    # Corrigir se Time B for mandante ou visitante neste jogo
                     if game["teams"]["home"]["id"] == team_b_id:
                         opponent_name = game["teams"]["away"]["name"]
                     else:
                         opponent_name = game["teams"]["home"]["name"]
-
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
-                    fixture_id = str(game["fixture"]["id"])
 
+                    
+                    # Permitir ajuste dos pontos Elo do adversário
+                    fixture_id = str(game["fixture"]["id"])
                     if fixture_id not in st.session_state["opponent_elo_b"]:
                         st.session_state["opponent_elo_b"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
+                    # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
                         st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
 
@@ -925,7 +926,6 @@ def main():
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
                     title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
-
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -934,7 +934,8 @@ def main():
                                     for s in stat["statistics"]:
                                         value = s["value"]
                                         if s["type"].lower() == "ball possession" and isinstance(value, str):
-                                            value = float(value.replace("%", "").strip() or 0.0)
+                                            value = value.replace("%", "").strip()
+                                            value = float(value) if value else 0.0
                                         else:
                                             try:
                                                 value = float(value) if value is not None else 0.0
@@ -947,8 +948,7 @@ def main():
                         else:
                             st.write("Nenhuma estatística disponível para este jogo.")
             else:
-                st.warning(f"Nenhum jogo encontrado para o Time B ({st.session_state['team_b']['team']['name']}), mesmo após buscar temporadas anteriores.")
-
+                st.warning(f"Nenhum jogo finalizado encontrado para {st.session_state['team_b']['team']['name']} na temporada {season_b}. Tente outra temporada, como 2024.")
 
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para ver os jogos.")
