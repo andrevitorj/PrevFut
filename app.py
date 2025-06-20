@@ -92,49 +92,59 @@ def search_team(team_name):
         return []
 
 # Função para buscar jogos passados
-def get_team_games(team_id, season, home=True, limit=20, neutral=False):
+def get_team_games(team_id, season, home=True, limit=10, neutral=False):
     if not API_KEY:
         st.error("Chave da API não configurada.")
         return []
+
     url = f"{API_BASE_URL}/fixtures"
-    params = {
-        "team": team_id,
-        "season": season,
-        "last": limit,
-        "status": "FT"  # Apenas jogos finalizados
-    }
-    try:
-        response = requests.get(url, headers=HEADERS, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            games = data.get("response", [])
-            if neutral:
-                return games  # retorna todos os jogos
-            filtered_games = [
-                game for game in games
-                if (home and game["teams"]["home"]["id"] == team_id) or
-                   (not home and game["teams"]["away"]["id"] == team_id)
-            ]
-            if not filtered_games and season == 2025:
-                st.warning(f"Nenhum jogo encontrado para temporada {season}. Tentando temporada {season-1}...")
-                params["season"] = season - 1
-                response = requests.get(url, headers=HEADERS, params=params)
-                if response.status_code == 200:
-                    data = response.json()
-                    games = data.get("response", [])
-                    if neutral:
-                        return games
+    headers = {"X-RapidAPI-Key": API_KEY}
+    
+    total_games = []
+    season_to_check = season
+
+    while len(total_games) < limit and season_to_check >= 2000:
+        params = {
+            "team": team_id,
+            "season": season_to_check,
+            "status": "FT",
+            "last": 100
+        }
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                games = data.get("response", [])
+
+                if not neutral:
                     filtered_games = [
                         game for game in games
                         if (home and game["teams"]["home"]["id"] == team_id) or
                            (not home and game["teams"]["away"]["id"] == team_id)
                     ]
-            return filtered_games
-        st.error(f"Erro ao buscar jogos: {response.status_code} - {response.text}")
-        return []
-    except Exception as e:
-        st.error(f"Erro ao buscar jogos: {str(e)}")
-        return []
+                else:
+                    filtered_games = games
+
+                # Apenas adiciona novos jogos que ainda não estavam na lista (evita duplicata)
+                new_games = [
+                    g for g in filtered_games
+                    if g["fixture"]["id"] not in {x["fixture"]["id"] for x in total_games}
+                ]
+                total_games.extend(new_games)
+
+                if len(total_games) >= limit:
+                    break
+
+                season_to_check -= 1
+            else:
+                st.warning(f"Erro ao buscar jogos da temporada {season_to_check}: {response.status_code}")
+                season_to_check -= 1
+        except Exception as e:
+            st.warning(f"Erro ao buscar jogos: {str(e)}")
+            break
+
+    return total_games[:limit]
+
 
 
 # Função para buscar o próximo jogo entre dois times
