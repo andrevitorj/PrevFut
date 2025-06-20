@@ -714,7 +714,7 @@ def main():
                 st.session_state["teams_b"] = teams_b
                 st.session_state["seasons_a"] = seasons_a
                 st.session_state["seasons_b"] = seasons_b
-                st.session_state["num_games"] = num_games
+                st.session_state["num_games"] = num_jogos
 
                 if not teams_a:
                     st.error("Nenhum time encontrado para o Time A.")
