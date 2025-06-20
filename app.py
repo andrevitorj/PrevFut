@@ -1081,6 +1081,13 @@ def main():
                 st.session_state["team_b"]["team"]["name"]
             )
             st.session_state["score_pred"] = score_pred
+            st.session_state["comparison_data"] = {
+            "Team A": st.session_state["team_a"]["team"]["name"],
+            "Team B": st.session_state["team_b"]["team"]["name"],
+            "Score Prediction": score_pred.get("score", "N/A"),
+            "Confidence": score_pred.get("confidence", "N/A")
+            }
+
             if score_pred["score"] != "N/A":
                 st.write(f"Placar mais provável: {score_pred['score']}")
                 st.write(f"Probabilidade de Vitória: {score_pred['probs']['win']*100:.1f}%")
