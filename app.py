@@ -689,7 +689,7 @@ def main():
             team_b_name = st.text_input("Time B", placeholder="Digite o nome do time B")
             season_b = st.selectbox("Temporada Time B", list(range(2020, 2026)), index=5)
 
-                campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
+        campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
         st.session_state["campo_neutro"] = campo_neutro
 
         num_jogos = st.number_input("Número de jogos a analisar por time", min_value=1, max_value=20, value=10, step=1)
