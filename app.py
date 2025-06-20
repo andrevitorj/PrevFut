@@ -125,20 +125,23 @@ def get_team_games(team_id, season, home=True, limit=10, neutral=False):
                 else:
                     filtered_games = games
 
-                total_games.extend(filtered_games)
+                total_games += filtered_games
 
+                # Só para de buscar se atingir o limite solicitado
                 if len(total_games) >= limit:
                     break
 
+                # Continua buscando na temporada anterior
                 season_to_check -= 1
             else:
                 st.warning(f"Erro ao buscar jogos da temporada {season_to_check}: {response.status_code}")
-                break
+                season_to_check -= 1
         except Exception as e:
             st.warning(f"Erro ao buscar jogos: {str(e)}")
             break
 
     return total_games[:limit]
+
 
 
 
