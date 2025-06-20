@@ -689,8 +689,12 @@ def main():
             team_b_name = st.text_input("Time B", placeholder="Digite o nome do time B")
             season_b = st.selectbox("Temporada Time B", list(range(2020, 2026)), index=5)
 
-        campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
+                campo_neutro = st.checkbox("Campo neutro (usar jogos gerais em vez de casa/fora)")
         st.session_state["campo_neutro"] = campo_neutro
+
+        num_jogos = st.number_input("Número de jogos a analisar por time", min_value=1, max_value=20, value=10, step=1)
+        st.session_state["num_jogos"] = num_jogos
+
 
         if st.button("Buscar Times"):
             if len(team_a_name) < 3 or len(team_b_name) < 3:
@@ -772,6 +776,7 @@ def main():
                 team_a_id,
                 season_a,
                 home=True,
+                limit=st.session_state.get("num_jogos", 10),
                 neutral=st.session_state.get("campo_neutro", False)
             )
 
@@ -779,8 +784,10 @@ def main():
                 team_b_id,
                 season_b,
                 home=False,
+                limit=st.session_state.get("num_jogos", 10),
                 neutral=st.session_state.get("campo_neutro", False)
             )
+
 
             ratings_df = st.session_state.get("ratings_df", None)
 
