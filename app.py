@@ -1013,7 +1013,6 @@ def main():
                     "Estatística": simple_a.keys(),
                     "Média Simples": [round(v, 1) for v in simple_a.values()],
                     "IC 85%": [f"[{round(ic_a[k][0], 1)}, {round(ic_a[k][1], 1)}]" for k in simple_a],
-                    "Média Ajustada": [round(v, 1) for v in adjusted_a.values()],
                     "Nº Partidas": [team_a_counts[k] for k in simple_a]
                 })
 
@@ -1021,9 +1020,9 @@ def main():
                     "Estatística": simple_b.keys(),
                     "Média Simples": [round(v, 1) for v in simple_b.values()],
                     "IC 85%": [f"[{round(ic_b[k][0], 1)}, {round(ic_b[k][1], 1)}]" for k in simple_b],
-                    "Média Ajustada": [round(v, 1) for v in adjusted_b.values()],
                     "Nº Partidas": [team_b_counts[k] for k in simple_b]
                 })
+
 
                 st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
                 st.dataframe(df_a)
@@ -1041,32 +1040,60 @@ def main():
         if "simple_a" in st.session_state:
             team_a_weight = st.session_state.get("team_a_weight", 0.8)
             team_b_weight = st.session_state.get("team_b_weight", 0.8)
-            predicted_stats, confidence_intervals, predicted_counts = predict_stats(
-                st.session_state["simple_a"], st.session_state["adjusted_a"],
-                st.session_state["simple_b"], st.session_state["adjusted_b"],
-                st.session_state["team_a_counts"], st.session_state["team_b_counts"],
-                team_a_weight, team_b_weight
-            )
-            st.session_state["predicted_stats"] = predicted_stats
-            st.session_state["confidence_intervals"] = confidence_intervals
-            st.session_state["predicted_counts"] = predicted_counts
-            if predicted_stats:
-                df_pred = pd.DataFrame([
-                    {
-                        "Estatística": stat,
-                        f"{st.session_state['team_a']['team']['name']}": round(pred["team_a"], 1),
-                        f"{st.session_state['team_a']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_a'][0], 1)}, {round(confidence_intervals[stat]['team_a'][1], 1)}]",
-                        f"{st.session_state['team_b']['team']['name']}": round(pred["team_b"], 1),
-                        f"{st.session_state['team_b']['team']['name']} (IC 85%)": f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]",
-                        "Nº Partidas": predicted_counts[stat]
-                    }
-                    for stat, pred in predicted_stats.items()
-                ])
-                st.dataframe(df_pred)
-            else:
-                st.warning("Não foi possível gerar previsões devido à falta de dados de gols.")
+
+            simple_a = st.session_state["simple_a"]
+            simple_b = st.session_state["simple_b"]
+            counts_a = st.session_state["team_a_counts"]
+            counts_b = st.session_state["team_b_counts"]
+            name_a = st.session_state['team_a']['team']['name']
+            name_b = st.session_state['team_b']['team']['name']
+
+            estat_map = {
+                "goals_scored": "goals_conceded",
+                "shots": "shots_conceded",
+                "shots_on_target": "shots_on_target_conceded",
+                "corners": "corners_conceded",
+                "possession": "possession_conceded",
+                "passes_accurate": "passes_accurate",
+                "fouls_committed": "fouls_committed",
+                "yellow_cards": "yellow_cards",
+                "red_cards": "red_cards",
+                "offsides": "offsides"
+            }
+
+            ofensivas = ["goals_scored", "shots", "shots_on_target", "corners", "possession", "passes_accurate"]
+
+            combinadas = []
+            previstas = []
+
+            for estat in estat_map:
+                if estat in simple_a and estat_map[estat] in simple_b:
+                    comb_a = (simple_a[estat] + simple_b[estat_map[estat]]) / 2
+                    comb_b = (simple_b[estat] + simple_a[estat_map[estat]]) / 2
+                    combinadas.append([estat, round(comb_a, 2), round(comb_b, 2)])
+
+                    if estat in ofensivas:
+                        prev_a = comb_a * (team_a_weight / team_b_weight)
+                        prev_b = comb_b * (team_b_weight / team_a_weight)
+                    else:
+                        prev_a = comb_a
+                        prev_b = comb_b
+
+                    n_partidas = min(counts_a.get(estat, 0), counts_b.get(estat_map[estat], 0))
+                    previstas.append([estat, round(prev_a, 2), round(prev_b, 2), n_partidas])
+
+            df_comb = pd.DataFrame(combinadas, columns=["Estatística", f"Média Combinada {name_a}", f"Média Combinada {name_b}"])
+            df_prev = pd.DataFrame(previstas, columns=["Estatística", f"{name_a}", f"{name_b}", "Nº Partidas"])
+
+            st.markdown("**Médias Combinadas**")
+            st.dataframe(df_comb)
+
+            st.markdown("**Estatísticas Previstas (Ponderadas por Coeficiente)**")
+            st.dataframe(df_prev)
         else:
             st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
+
+
 
     with tabs[5]:
         if "adjusted_a" in st.session_state:
