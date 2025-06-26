@@ -997,7 +997,6 @@ def main():
                 st.session_state["team_b_raw_stats"] = team_b_raw_stats
                 st.session_state["team_b_raw_adjusted"] = team_b_raw_adjusted
 
-                # Calcular IC 85% para médias simples
                 z = norm.ppf(0.925)
                 ic_a, ic_b = {}, {}
                 for stat in simple_a:
@@ -1013,6 +1012,7 @@ def main():
                     "Estatística": simple_a.keys(),
                     "Média Simples": [round(v, 1) for v in simple_a.values()],
                     "IC 85%": [f"[{round(ic_a[k][0], 1)}, {round(ic_a[k][1], 1)}]" for k in simple_a],
+                    "Média Ajustada": [round(adjusted_a[k], 1) for k in simple_a],
                     "Nº Partidas": [team_a_counts[k] for k in simple_a]
                 })
 
@@ -1020,9 +1020,9 @@ def main():
                     "Estatística": simple_b.keys(),
                     "Média Simples": [round(v, 1) for v in simple_b.values()],
                     "IC 85%": [f"[{round(ic_b[k][0], 1)}, {round(ic_b[k][1], 1)}]" for k in simple_b],
+                    "Média Ajustada": [round(adjusted_b[k], 1) for k in simple_b],
                     "Nº Partidas": [team_b_counts[k] for k in simple_b]
                 })
-
 
                 st.write(f"Médias do Time A ({st.session_state['team_a']['team']['name']}):")
                 st.dataframe(df_a)
@@ -1034,7 +1034,6 @@ def main():
                 st.warning("Não foi possível calcular médias. Verifique se há jogos finalizados na aba 'Jogos Analisados'.")
         else:
             st.info("Selecione os times na aba 'Seleção de Times' para calcular as médias.")
-
 
     with tabs[4]:
         if "simple_a" in st.session_state:
@@ -1090,6 +1089,30 @@ def main():
 
             st.markdown("**Estatísticas Previstas (Ponderadas por Coeficiente)**")
             st.dataframe(df_prev)
+
+            # Tabela adicional: previsões anteriores com IC 85%
+            predicted_stats, confidence_intervals, predicted_counts = predict_stats(
+                st.session_state["simple_a"], st.session_state["adjusted_a"],
+                st.session_state["simple_b"], st.session_state["adjusted_b"],
+                st.session_state["team_a_counts"], st.session_state["team_b_counts"],
+                team_a_weight, team_b_weight
+            )
+            if predicted_stats:
+                df_pred = pd.DataFrame([
+                    {
+                        "Estatística": stat,
+                        f"{name_a}": round(pred["team_a"], 1),
+                        f"{name_a} (IC 85%)": f"[{round(confidence_intervals[stat]['team_a'][0], 1)}, {round(confidence_intervals[stat]['team_a'][1], 1)}]",
+                        f"{name_b}": round(pred["team_b"], 1),
+                        f"{name_b} (IC 85%)": f"[{round(confidence_intervals[stat]['team_b'][0], 1)}, {round(confidence_intervals[stat]['team_b'][1], 1)}]",
+                        "Nº Partidas": predicted_counts[stat]
+                    }
+                    for stat, pred in predicted_stats.items()
+                ])
+                st.markdown("**Estatísticas Previstas (Modelo Antigo - IC 85%)**")
+                st.dataframe(df_pred)
+            else:
+                st.warning("Não foi possível gerar previsões devido à falta de dados de gols.")
         else:
             st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
 
