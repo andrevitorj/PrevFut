@@ -966,8 +966,21 @@ def main():
             games_b = get_team_games(team_b_id, seasons_b, home=False, limit=st.session_state.get("num_jogos", 10), neutral=st.session_state.get("campo_neutro", False))
 
             if games_a and games_b:
-                simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(games_a, team_a_id, seasons_a[-1], team_a_weight, st.session_state["opponent_weights_a"])
-                simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(games_b, team_b_id, seasons_b[-1], team_b_weight, st.session_state["opponent_weights_b"])
+                simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(
+                    games_a, team_a_id, seasons_a[-1], team_a_weight, st.session_state["opponent_weights_a"]
+                )
+                simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(
+                    games_b, team_b_id, seasons_b[-1], team_b_weight, st.session_state["opponent_weights_b"]
+                )
+
+
+                # ⬇️ INSIRA AQUI
+                def estatisticas_invalidas(stats_dict):
+                    return not stats_dict or all(v == 0 for v in stats_dict.values())
+
+                if estatisticas_invalidas(simple_a) or estatisticas_invalidas(simple_b):
+                    st.warning("Uma ou ambas as equipes não possuem estatísticas válidas para os jogos analisados. Verifique os dados.")
+                    return
 
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
