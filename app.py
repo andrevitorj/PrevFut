@@ -962,29 +962,12 @@ def main():
             team_a_weight = st.session_state.get("team_a_weight", 0.8)
             team_b_weight = st.session_state.get("team_b_weight", 0.8)
 
-            games_a = get_team_games(
-                team_a_id,
-                seasons_a,
-                home=True,
-                limit=st.session_state.get("num_jogos", 10),
-                neutral=st.session_state.get("campo_neutro", False)
-            )
-
-            games_b = get_team_games(
-                team_b_id,
-                seasons_b,
-                home=False,
-                limit=st.session_state.get("num_jogos", 10),
-                neutral=st.session_state.get("campo_neutro", False)
-            )
+            games_a = get_team_games(team_a_id, seasons_a, home=True, limit=st.session_state.get("num_jogos", 10), neutral=st.session_state.get("campo_neutro", False))
+            games_b = get_team_games(team_b_id, seasons_b, home=False, limit=st.session_state.get("num_jogos", 10), neutral=st.session_state.get("campo_neutro", False))
 
             if games_a and games_b:
-                simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(
-                    games_a, team_a_id, seasons_a[-1], team_a_weight, st.session_state["opponent_weights_a"]
-                )
-                simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(
-                    games_b, team_b_id, seasons_b[-1], team_b_weight, st.session_state["opponent_weights_b"]
-                )
+                simple_a, adjusted_a, team_a_counts, _, team_a_raw_stats, team_a_raw_adjusted = calculate_averages(games_a, team_a_id, seasons_a[-1], team_a_weight, st.session_state["opponent_weights_a"])
+                simple_b, adjusted_b, team_b_counts, _, team_b_raw_stats, team_b_raw_adjusted = calculate_averages(games_b, team_b_id, seasons_b[-1], team_b_weight, st.session_state["opponent_weights_b"])
 
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
@@ -992,10 +975,6 @@ def main():
                 st.session_state["adjusted_b"] = adjusted_b
                 st.session_state["team_a_counts"] = team_a_counts
                 st.session_state["team_b_counts"] = team_b_counts
-                st.session_state["team_a_raw_stats"] = team_a_raw_stats
-                st.session_state["team_a_raw_adjusted"] = team_a_raw_adjusted
-                st.session_state["team_b_raw_stats"] = team_b_raw_stats
-                st.session_state["team_b_raw_adjusted"] = team_b_raw_adjusted
 
                 z = norm.ppf(0.925)
                 ic_a, ic_b = {}, {}
@@ -1042,6 +1021,8 @@ def main():
 
             simple_a = st.session_state["simple_a"]
             simple_b = st.session_state["simple_b"]
+            adjusted_a = st.session_state["adjusted_a"]
+            adjusted_b = st.session_state["adjusted_b"]
             counts_a = st.session_state["team_a_counts"]
             counts_b = st.session_state["team_b_counts"]
             name_a = st.session_state['team_a']['team']['name']
@@ -1062,9 +1043,7 @@ def main():
 
             ofensivas = ["goals_scored", "shots", "shots_on_target", "corners", "possession", "passes_accurate"]
 
-            combinadas = []
-            previstas = []
-
+            combinadas, previstas = [], []
             for estat in estat_map:
                 if estat in simple_a and estat_map[estat] in simple_b:
                     comb_a = (simple_a[estat] + simple_b[estat_map[estat]]) / 2
@@ -1090,12 +1069,9 @@ def main():
             st.markdown("**Estatísticas Previstas (Ponderadas por Coeficiente)**")
             st.dataframe(df_prev)
 
-            # Tabela adicional: previsões anteriores com IC 85%
+            # Exibição complementar: médias ajustadas puras (antiga lógica)
             predicted_stats, confidence_intervals, predicted_counts = predict_stats(
-                st.session_state["simple_a"], st.session_state["adjusted_a"],
-                st.session_state["simple_b"], st.session_state["adjusted_b"],
-                st.session_state["team_a_counts"], st.session_state["team_b_counts"],
-                team_a_weight, team_b_weight
+                simple_a, adjusted_a, simple_b, adjusted_b, counts_a, counts_b, team_a_weight, team_b_weight
             )
             if predicted_stats:
                 df_pred = pd.DataFrame([
@@ -1109,12 +1085,11 @@ def main():
                     }
                     for stat, pred in predicted_stats.items()
                 ])
-                st.markdown("**Estatísticas Previstas (Modelo Antigo - IC 85%)**")
+                st.markdown("**Estatísticas Previstas (Ajustadas)**")
                 st.dataframe(df_pred)
-            else:
-                st.warning("Não foi possível gerar previsões devido à falta de dados de gols.")
         else:
             st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
+
 
 
 
