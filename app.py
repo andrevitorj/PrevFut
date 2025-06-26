@@ -1087,8 +1087,23 @@ def main():
                 ])
                 st.markdown("**Estatísticas Previstas (Ajustadas)**")
                 st.dataframe(df_pred)
-        else:
-            st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
+                
+                # Nova Tabela: Média Simples das 3 Médias
+                simples_3 = []
+                for estat in estat_map:
+                    if all(e in simple_a and e in adjusted_a and e in df_comb["Estatística"].values for e in [estat]):
+                        comb_a_val = df_comb.loc[df_comb["Estatística"] == estat, f"Média Combinada {name_a}"].values[0]
+                        comb_b_val = df_comb.loc[df_comb["Estatística"] == estat, f"Média Combinada {name_b}"].values[0]
+                        media_a = round((simple_a[estat] + adjusted_a[estat] + comb_a_val) / 3, 2)
+                        media_b = round((simple_b[estat] + adjusted_b[estat] + comb_b_val) / 3, 2)
+                        simples_3.append([estat, media_a, media_b])
+
+                df_final = pd.DataFrame(simples_3, columns=["Estatística", f"{name_a}", f"{name_b}"])
+                st.markdown("**Média Simples das 3 Médias (Simples + Ajustada + Combinada)**")
+                st.dataframe(df_final)
+
+            else:
+                st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
 
 
 
