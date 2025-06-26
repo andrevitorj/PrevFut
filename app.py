@@ -969,13 +969,7 @@ def main():
                 )
 
 
-                # ⬇️ INSIRA AQUI
-                def estatisticas_invalidas(stats_dict):
-                    return not stats_dict or all(v == 0 for v in stats_dict.values())
-
-                if estatisticas_invalidas(simple_a) or estatisticas_invalidas(simple_b):
-                    st.warning("Uma ou ambas as equipes não possuem estatísticas válidas para os jogos analisados. Verifique os dados.")
-                    return
+                
 
                 st.session_state["simple_a"] = simple_a
                 st.session_state["adjusted_a"] = adjusted_a
