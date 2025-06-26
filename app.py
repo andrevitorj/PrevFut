@@ -225,9 +225,22 @@ def calculate_averages(games, team_id, season, team_weight, opponent_weights=Non
         "xg": [], "xga": [],
         "free_kicks": [], "free_kicks_conceded": []
     }
-    adjusted_values = {k: [] for k in stats.keys()}
-    game_counts = {k: 0 for k in stats.keys()}
+    adjusted_values = {k: [] for k in stats}
+    game_counts = {k: 0 for k in stats}
 
+    estatisticas_relevantes = ["goals_scored", "goals_conceded", "shots", "shots_conceded",
+                               "shots_on_target", "shots_on_target_conceded", "corners", "corners_conceded",
+                               "possession", "possession_conceded"]
+
+    for game in games:
+        estatisticas_jogo = game.get("statistics", {})
+        valores = [estatisticas_jogo.get(est, 0) for est in estatisticas_relevantes]
+        if all(v == 0 for v in valores):
+            continue  # Ignora jogos com todas as estatísticas irrelevantes zeradas
+
+        # ... segue lógica do game_stats, mapeamentos, contagem etc.
+
+    
     stat_mapping = {
         "total shots": "shots",
         "shots on goal": "shots_on_target",
