@@ -1090,20 +1090,21 @@ def main():
                 
                 # Nova Tabela: Média Simples das 3 Médias
                 # Cálculo correto da média simples das 3 médias para cada estatística
+                # Nova Tabela: Média Simples das 3 Médias (Simples Prevista + Ajustada + Combinada)
                 media_simples = []
                 for estat in predicted_stats:
-                    val_simples_a = simple_a.get(estat, 0)
-                    val_ajustada_a = predicted_stats[estat]["team_a"]
-                    val_combinada_a = next((row[1] for row in combinadas if row[0] == estat), 0)
+                    # Buscar valores diretamente dos DataFrames exibidos na aba
+                    val_simples_a = df_prev.loc[df_prev["Estatística"] == estat, f"{name_a}"].values[0] if estat in df_prev["Estatística"].values else 0
+                    val_ajustada_a = df_pred.loc[df_pred["Estatística"] == estat, f"{name_a}"].values[0] if estat in df_pred["Estatística"].values else 0
+                    val_combinada_a = df_comb.loc[df_comb["Estatística"] == estat, f"Média Combinada {name_a}"].values[0] if estat in df_comb["Estatística"].values else 0
                     media_final_a = round((val_simples_a + val_ajustada_a + val_combinada_a) / 3, 2)
 
-                    val_simples_b = simple_b.get(estat, 0)
-                    val_ajustada_b = predicted_stats[estat]["team_b"]
-                    val_combinada_b = next((row[2] for row in combinadas if row[0] == estat), 0)
+                    val_simples_b = df_prev.loc[df_prev["Estatística"] == estat, f"{name_b}"].values[0] if estat in df_prev["Estatística"].values else 0
+                    val_ajustada_b = df_pred.loc[df_pred["Estatística"] == estat, f"{name_b}"].values[0] if estat in df_pred["Estatística"].values else 0
+                    val_combinada_b = df_comb.loc[df_comb["Estatística"] == estat, f"Média Combinada {name_b}"].values[0] if estat in df_comb["Estatística"].values else 0
                     media_final_b = round((val_simples_b + val_ajustada_b + val_combinada_b) / 3, 2)
 
                     media_simples.append([estat, media_final_a, media_final_b])
-
 
                 df_media_final = pd.DataFrame(media_simples, columns=["Estatística", f"{name_a}", f"{name_b}"])
                 st.markdown("**Média Simples das 3 Médias (Simples + Ajustada + Combinada)**")
@@ -1111,8 +1112,9 @@ def main():
 
 
 
-            else:
-                st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
+
+        else:
+            st.info("Calcule as médias na aba 'Médias' para gerar previsões.")
 
 
 
