@@ -1120,7 +1120,7 @@ def main():
                     media_simples.append([estat, media_final_a, media_final_b])
 
                 df_media_final = pd.DataFrame(media_simples, columns=["Estatística", f"{name_a}", f"{name_b}"])
-                st.markdown("**Média Simples das 3 Médias (Média Simples + Coeficiente Simples + Ajustada por Adversário)**")
+                st.markdown("**Média Simples + Coeficiente Simples + Ajustada por Adversário**")
                 st.dataframe(df_media_final)
 
 
