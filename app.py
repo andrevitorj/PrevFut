@@ -624,12 +624,12 @@ def main():
     st.set_page_config(page_title="Previsão de Partidas de Futebol", layout="wide")
     st.title("Previsão Estatística de Partidas de Futebol")
 
-    # Inicializar pesos dos adversários no session_state
+    # Inicializar pesos dos s no session_state
     if "opponent_weights_a" not in st.session_state:
         st.session_state["opponent_weights_a"] = {}
     if "opponent_weights_b" not in st.session_state:
         st.session_state["opponent_weights_b"] = {}
-    # Inicializar pontos Elo dos adversários no session_state
+    # Inicializar pontos Elo dos s no session_state
     if "opponent_elo_a" not in st.session_state:
         st.session_state["opponent_elo_a"] = {}
     if "opponent_elo_b" not in st.session_state:
@@ -804,7 +804,7 @@ def main():
             ratings_df = st.session_state.get("ratings_df", None)
 
             # Botão no início da aba para recalcular
-            if (games_a or games_b) and st.button("Confirmar Pesos dos Adversários e Calcular Médias e Estatísticas"):
+            if (games_a or games_b) and st.button("Confirmar Pesos dos s e Calcular Médias e Estatísticas"):
                 # Limpar estados anteriores relacionados a médias e previsões
                 for key in [
                     "simple_a", "adjusted_a", "team_a_counts", "team_a_raw_stats", "team_a_raw_adjusted",
@@ -837,17 +837,17 @@ def main():
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
 
                     
-                    # Permitir ajuste dos pontos Elo do adversário
+                    # Permitir ajuste dos pontos Elo do 
                     fixture_id = str(game["fixture"]["id"])
                     if fixture_id not in st.session_state["opponent_elo_a"]:
                         st.session_state["opponent_elo_a"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
                     # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
-                        st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
+                        st.warning(f"Pontos Elo não identificados para o  {opponent_name}.")
 
                     opponent_elo_adjusted = st.number_input(
-                        f"Pontos Elo do Adversário ({opponent_name})",
+                        f"Pontos Elo do  ({opponent_name})",
                         min_value=0,
                         value=int(st.session_state["opponent_elo_a"][fixture_id]),
                         step=1,
@@ -858,7 +858,7 @@ def main():
                     st.session_state["opponent_weights_a"][fixture_id] = opponent_weight_adjusted
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso : {opponent_weight_adjusted:.2f}{title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -904,17 +904,17 @@ def main():
                     opponent_elo, opponent_weight = get_team_elo_and_weight(opponent_name, ratings_df)
 
                     
-                    # Permitir ajuste dos pontos Elo do adversário
+                    # Permitir ajuste dos pontos Elo do 
                     fixture_id = str(game["fixture"]["id"])
                     if fixture_id not in st.session_state["opponent_elo_b"]:
                         st.session_state["opponent_elo_b"][fixture_id] = opponent_elo if opponent_elo is not None else 1600
 
                     # Aviso se pontos Elo não identificados
                     if opponent_elo is None:
-                        st.warning(f"Pontos Elo não identificados para o adversário {opponent_name}.")
+                        st.warning(f"Pontos Elo não identificados para o  {opponent_name}.")
 
                     opponent_elo_adjusted = st.number_input(
-                        f"Pontos Elo do Adversário ({opponent_name})",
+                        f"Pontos Elo do  ({opponent_name})",
                         min_value=0,
                         value=int(st.session_state["opponent_elo_b"][fixture_id]),
                         step=1,
@@ -925,7 +925,7 @@ def main():
                     st.session_state["opponent_weights_b"][fixture_id] = opponent_weight_adjusted
 
                     title_suffix = " (SEM ESTATÍSTICAS)" if not has_stats else ""
-                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso Adversário: {opponent_weight_adjusted:.2f}{title_suffix}"
+                    title = f"{home_team} {home_goals} x {away_goals} {away_team} - {formatted_date} ({league_name}) - Peso : {opponent_weight_adjusted:.2f}{title_suffix}"
                     with st.expander(title):
                         if has_stats:
                             data = []
@@ -1073,13 +1073,13 @@ def main():
                     n_partidas = min(counts_a.get(estat, 0), counts_b.get(estat_map[estat], 0))
                     previstas.append([estat, round(prev_a, 2), round(prev_b, 2), n_partidas])
 
-            df_comb = pd.DataFrame(combinadas, columns=["Estatística", f"Média Combinada {name_a}", f"Média Combinada {name_b}"])
+            df_comb = pd.DataFrame(combinadas, columns=["Estatística", f"Média Simples {name_a}", f"Média Simples {name_b}"])
             df_prev = pd.DataFrame(previstas, columns=["Estatística", f"{name_a}", f"{name_b}", "Nº Partidas"])
 
-            st.markdown("**Médias Combinadas**")
+            st.markdown("**Médias Simples**")
             st.dataframe(df_comb)
 
-            st.markdown("**Estatísticas Previstas (Ponderadas por Coeficiente)**")
+            st.markdown("**Estatísticas Previstas (Coeficiente Simples)**")
             st.dataframe(df_prev)
 
             # Exibição complementar: médias ajustadas puras (antiga lógica)
@@ -1098,12 +1098,12 @@ def main():
                     }
                     for stat, pred in predicted_stats.items()
                 ])
-                st.markdown("**Estatísticas Previstas (Ajustadas)**")
+                st.markdown("**Estatísticas Previstas (Ajustadas por Adversário)**")
                 st.dataframe(df_pred)
                 
                 # Nova Tabela: Média Simples das 3 Médias
                 # Cálculo correto da média simples das 3 médias para cada estatística
-                # Nova Tabela: Média Simples das 3 Médias (Simples Prevista + Ajustada + Combinada)
+                # Nova Tabela: Média Simples das 3 Médias (Média Simples + Coeficiente Simples + Ajustada por Adversário)
                 media_simples = []
                 for estat in predicted_stats:
                     # Buscar valores diretamente dos DataFrames exibidos na aba
@@ -1120,7 +1120,7 @@ def main():
                     media_simples.append([estat, media_final_a, media_final_b])
 
                 df_media_final = pd.DataFrame(media_simples, columns=["Estatística", f"{name_a}", f"{name_b}"])
-                st.markdown("**Média Simples das 3 Médias (Simples + Ajustada + Combinada)**")
+                st.markdown("**Média Simples das 3 Médias (Média Simples + Coeficiente Simples + Ajustada por Adversário)**")
                 st.dataframe(df_media_final)
 
 
